@@ -1,12 +1,12 @@
+from __future__ import annotations
 import configparser
 import logging
 import pathlib
+import numpy as np
 
 import mecademicpy.robot as mdr
 import mecademicpy.robot_initializer as initializer
 import mecademicpy.tools as tools
-
-from pathlib import Path
 
 import robot_helpers
 
@@ -17,18 +17,30 @@ logger.setLevel(logging.INFO)
 logger.propagate = True
 
 
-class Meca:
+class MecaClass:
     def __init__(self, config_path: str = "robot_config.ini"):
+
+        # config
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-        self.cfg.read(Path(config_path))
+        self.cfg.read(pathlib.Path(config_path))
 
         # ip priority: explicit arg > config file
         self.ip = self.cfg.get("robot", "ip", fallback=None)
         logger.info("Robot IP: %s", self.ip)
         
+        # robot instance
         self.robot = initializer.RobotWithTools()
 
+        # get origin
+        self.x_origin = self.cfg.getfloat("position.origin", "x_origin")
+        self.y_origin = self.cfg.getfloat("position.origin", "y_origin")
+        self.z_origin = self.cfg.getfloat("position.origin", "z_origin")
+        self.theta_x_origin = self.cfg.getfloat("position.origin", "theta_x_origin")
+        self.theta_y_origin = self.cfg.getfloat("position.origin", "theta_y_origin")
+        self.theta_z_origin = self.cfg.getfloat("position.origin", "theta_z_origin")
+
     def connect(self):
+        # try to connect
         try:
             self.robot.Connect(address=self.ip, disconnect_on_exception=False)
         except mdr.InterruptException as exception:
@@ -43,11 +55,15 @@ class Meca:
             logger.warning('Control-C pressed, quitting')
             pass
 
+        # activate
         logger.info("Activating")
         initializer.reset_sim_mode(self.robot)
         self.robot.ActivateRobot()
         self.robot.WaitActivated()
         logger.info("Robot activated")
+
+        # home
+        self.home()
 
         # apply hyperparams from config
         logger.info("Applying config parameters")
@@ -56,27 +72,36 @@ class Meca:
 
     def home(self):
         logger.info("Homing")
-        robot_helpers.assert_ready(self.robot)
+        # robot_helpers.assert_ready(self.robot)
         self.robot.Home()
         self.robot.WaitHomed()
         logger.info("Robot at home")
+
+    def move_to_origin(self):
+        logger.info('Moving the robot to origin')
+        self.move_lin(self, (self.x_origin, self.y_origin, self.z_origin,
+                             self.theta_x_origin, self.theta_y_origin, self.theta_z_origin))
 
     def move_joints(self, joints):
         logger.info('Moving the robot - joints')
         robot_helpers.assert_ready(self.robot)
         self.robot.MoveJoints(*joints)
-        self.robot.WaitIdle()
-        logger.info('Robot done moving')
+        # self.robot.WaitIdle()
+        # logger.info('Robot done moving')
 
-    def move_lin(self, points):
+    def move_lin(self, x_y_theta):
         logger.info('Moving the robot - linear')
-        # starting_pos = [0] * self.robot.GetRobotInfo().num_joints  # array w. size matching # joints
+        starting_pos = tuple(self.robot.GetPose())
         # robot_helpers.assert_ready(self.robot)
         # self.robot.MoveJoints(*starting_pos)  # Move joints using the unrolled array as arguments
         robot_helpers.assert_ready(self.robot)
+        # points = starting_pos
+        points = (x_y_theta[0], x_y_theta[1], self.z_origin, self.theta_x_origin,  self.theta_y_origin,
+                 x_y_theta[2])
+        print(points)
         self.robot.MoveLin(*points)
-        self.robot.WaitIdle()
-        logger.info('Robot finished moving')
+        # self.robot.WaitIdle()
+        # logger.info('Robot finished moving')
 
     def disconnect(self):
         self.robot.Disconnect()
