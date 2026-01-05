@@ -19,7 +19,6 @@ logger.propagate = True
 
 class MecaClass:
     def __init__(self, config_path: str = "robot_config.ini"):
-
         # config
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self.cfg.read(pathlib.Path(config_path))

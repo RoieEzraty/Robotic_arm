@@ -7,6 +7,8 @@ from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Callable, Union, Optional
 import numpy as np
 
+import file_helpers
+
 if TYPE_CHECKING:
     from Logger import Logger
 
@@ -40,35 +42,33 @@ class SupervisorClass:
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self.cfg.read(pathlib.Path(config_path))
 
+        self.experiment = self.cfg.getstr("experiment", "experiment")
+
         # parameters
-        self.T = self.cfg.getint("Training", "T")
-        self.rand_key_dataset = self.cfg.getint("Training", "rand_key_dataset")
-        self.alpha = self.cfg.getint("Training", "alpha")
+        if self.experiment == "training":
+            self.T = self.cfg.getint("Training", "T")
+            self.rand_key_dataset = self.cfg.getint("Training", "rand_key_dataset")
+            self.alpha = self.cfg.getint("Training", "alpha")
+        elif self.experiment == "sweep":
+            self.T = self.cfg.getint("sweep", "T")
+            self.x_range = self.cfg.getint("sweep", "x_range")
+            self.y_range = self.cfg.getint("sweep", "y_range")
+            self.theta_range = self.cfg.getint("sweep", "theta_range")
 
         self.input_update_in_t = np.zeros([self.T,])
         self.loss_in_t = np.zeros([self.T,])
         self.loss_norm_in_t = np.zeros([self.T,])
         self.loss_MSE_in_t = np.zeros([self.T,])        
-        
-        self.tip_pos = [0, 0, 0]  # [x, y, theta_z]
-        self.tip_pos_in_t[0] = self.tip_pos
 
     def init_dataset(self, dataset_path: str = "dataset.csv") -> None:
         rng = np.random.default_rng(self.rand_key_dataset)
+        pos_force_rows = file_helpers.load_pos_force(dataset_path)
 
-        self.theta_in_t = rng.uniform(low=-90, high=90, size=(self.T, Strctr.H))  # (T, hinges)
-        if self.problem == 'Fy':
-            # x, y coords from thetas
-            self.pos_in_t = funcs_geometry.forward_points(Strctr.L, self.theta_in_t)
+        # Convert to arrays (ML-friendly)
+        pos = np.array([r["pos"] for r in pos_force_rows], dtype=float)      # (N, 3)
+        force = np.array([r["force"] for r in pos_force_rows], dtype=float)  # (N, 2)
 
-    def load_pos_force(path: str):
-        rows = []
-        with open(path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for r in reader:
-                rows.append({
-                    "t_unix": float(r["t_unix"]),
-                    "pos": (float(r["pos_x"]), float(r["pos_y"]), float(r["pos_z"])),
-                    "force": (float(r["force_x"]), float(r["force_y"])),
-                })
-        return rows
+        # Shuffle consistently
+        idx = rng.permutation(len(pos))
+        self.pos_in_t = pos[idx]
+        self.desired_F_in_t = force[idx]
