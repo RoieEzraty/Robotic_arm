@@ -7,6 +7,8 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Callable, Tuple, Optional
 
+import file_helpers, helpers, plot_func
+
 from nidaqmx.constants import TerminalConfiguration, AcquisitionType
 
 
@@ -27,10 +29,20 @@ class ForsentekClass:
         self.min_val = self.cfg.getfloat("amp", "min_val", fallback=None)
         self.max_val = self.cfg.getfloat("amp", "max_val", fallback=None)
 
-        # --- create task ---
+        # ------ create task ------
         self.task = nidaqmx.Task()
         self.task.ai_channels.add_ai_voltage_chan(self.CHAN, terminal_config=TerminalConfiguration.RSE,
                                                   min_val=self.min_val, max_val=self.max_val)
+
+        # -------
+        self.calibration_path = self.cfg.get("calibration", "calibration_path")
+        voltages_vec, forces_vec, stds_vec = file_helpers.load_calibration_csv(self.calibration_path)
+        force_fit_params = helpers.fit_force_vs_voltage(voltages_vec, forces_vec, stds_vec)
+        plot_func.calibration_forces(voltages_vec, forces_vec, stds_vec, force_fit_params)
+        self.F_a, self.F_b = force_fit_params[0], force_fit_params[1]
+
+    def force_from_voltage(self, V):
+        return self.F_a * V + self.F_b
 
     def measure(self, T: Optional[float] = None) -> Tuple[NDArray[float], NDArray[float]]:
         if T is not None:
@@ -41,7 +53,8 @@ class ForsentekClass:
                                              samps_per_chan=N)
         t = np.arange(N) / self.fs
         data = np.asarray(self.task.read(number_of_samples_per_channel=N))
-        return t, data
+        force_data = self.force_from_voltage(data)
+        return t, force_data
 
     def mean_force(self, force_in_t):
         self.force = np.mean(force_in_t)

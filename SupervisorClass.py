@@ -31,7 +31,7 @@ class SupervisorClass:
     """
     problem: str
 
-    def __init__(self, config_path: str = "robot_config.ini") -> None:
+    def __init__(self, config_path: str = "supervisor_config.ini") -> None:
         """
         Parameters
         ----------
@@ -42,7 +42,8 @@ class SupervisorClass:
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self.cfg.read(pathlib.Path(config_path))
 
-        self.experiment = self.cfg.getstr("experiment", "experiment")
+        self.experiment = str(self.cfg.get("experiment", "experiment"))
+        print(self.experiment== "sweep")
 
         # parameters
         if self.experiment == "training":
