@@ -22,8 +22,6 @@ class ForsentekClass:
         self.DEV = self.cfg.get("ni", "DEV", fallback=None)
         CHAN = self.cfg.get("ni", "Channel", fallback=None)
         self.CHAN = f"{self.DEV}/{CHAN}"
-        print('DEV', self.DEV)
-        print('CHAN', self.CHAN)
         self.fs = self.cfg.getfloat("ni", "samp_freq", fallback=None)
         self.T = self.cfg.getfloat("ni", "T", fallback=None)
         self.min_val = self.cfg.getfloat("amp", "min_val", fallback=None)

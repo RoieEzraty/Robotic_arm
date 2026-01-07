@@ -42,10 +42,8 @@ class SupervisorClass:
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self.cfg.read(pathlib.Path(config_path))
 
+        # other sizes
         self.experiment = str(self.cfg.get("experiment", "experiment"))
-        print(self.experiment== "sweep")
-
-        # parameters
         if self.experiment == "training":
             self.T = self.cfg.getint("Training", "T")
             self.rand_key_dataset = self.cfg.getint("Training", "rand_key_dataset")
@@ -56,6 +54,7 @@ class SupervisorClass:
             self.y_range = self.cfg.getint("sweep", "y_range")
             self.theta_range = self.cfg.getint("sweep", "theta_range")
 
+        # initiate arrays in training time 
         self.input_update_in_t = np.zeros([self.T,])
         self.loss_in_t = np.zeros([self.T,])
         self.loss_norm_in_t = np.zeros([self.T,])

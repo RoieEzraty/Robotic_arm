@@ -81,6 +81,11 @@ class MecaClass:
         self.move_lin(self, (self.x_origin, self.y_origin, self.z_origin,
                              self.theta_x_origin, self.theta_y_origin, self.theta_z_origin))
 
+    def move_to_sleep_pos(self):
+        logger.info('Moving the robot to sleep position')
+        sleep_pos = (40, 0, 230, 180, 0, 0)
+        self.robot.MoveLin(*sleep_pos)
+
     def move_joints(self, joints):
         logger.info('Moving the robot - joints')
         robot_helpers.assert_ready(self.robot)
@@ -91,12 +96,9 @@ class MecaClass:
     def move_lin(self, x_y_theta):
         logger.info('Moving the robot - linear')
         starting_pos = tuple(self.robot.GetPose())
-        # robot_helpers.assert_ready(self.robot)
-        # self.robot.MoveJoints(*starting_pos)  # Move joints using the unrolled array as arguments
         robot_helpers.assert_ready(self.robot)
-        # points = starting_pos
         points = (x_y_theta[0], x_y_theta[1], self.z_origin, self.theta_x_origin,  self.theta_y_origin,
-                 x_y_theta[2])
+                  x_y_theta[2])
         print(points)
         self.robot.MoveLin(*points)
         # self.robot.WaitIdle()
@@ -121,58 +123,3 @@ class MecaClass:
         self.robot.WaitHomed()
 
         logger.info("Robot recovered and ready")
-
-    # def _apply_motion_config(self):
-    #     # Helpers
-    #     def getfloat(section, key, default=None):
-    #         return self.cfg.getfloat(section, key, fallback=default)
-
-    #     def getint(section, key, default=None):
-    #         return self.cfg.getint(section, key, fallback=default)
-
-    #     def call_if_exists(method_name, *args):
-    #         fn = getattr(self.robot, method_name, None)
-    #         if callable(fn):
-    #             fn(*args)
-    #             logger.info(f"Applied {method_name}{args}")
-    #             return True
-    #         return False
-
-    #     # Cartesian
-    #     lin_vel = getfloat("motion.cartesian", "lin_vel", None)
-    #     if lin_vel is not None:
-    #         call_if_exists("SetCartLinVel", lin_vel)
-
-    #     ang_vel = getfloat("motion.cartesian", "ang_vel", None)
-    #     if ang_vel is not None:
-    #         call_if_exists("SetCartAngVel", ang_vel)
-
-    #     lin_acc = getfloat("motion.cartesian", "lin_acc", None)
-    #     if lin_acc is not None:
-    #         call_if_exists("SetCartLinAcc", lin_acc)
-
-    #         ang_acc = getfloat("motion.cartesian", "ang_acc", None)
-    #     if ang_acc is not None:
-    #         call_if_exists("SetCartAngAcc", ang_acc)
-
-    #     # Joint (API names vary by mecademicpy version, so try a few)
-    #     jvel = getfloat("motion.joint", "vel", None)
-    #     if jvel is not None:
-    #         (call_if_exists("SetJointVel", jvel)
-    #          or call_if_exists("SetJointsVel", jvel)
-    #          or call_if_exists("SetJointVelPct", jvel)
-    #          or call_if_exists("SetJointsVelPct", jvel))
-
-    #     jacc = getfloat("motion.joint", "acc", None)
-    #     if jacc is not None:
-    #         (call_if_exists("SetJointAcc", jacc)
-    #          or call_if_exists("SetJointsAcc", jacc)
-    #          or call_if_exists("SetJointAccPct", jacc)
-    #          or call_if_exists("SetJointsAccPct", jacc))
-
-    #     # Path / blending
-    #     blending = getint("motion.path", "blending", None)
-    #     if blending is not None:
-    #         call_if_exists("SetBlending", blending)
-
-    #     logger.info("Motion config applied.")
