@@ -11,6 +11,7 @@ import file_helpers
 
 if TYPE_CHECKING:
     from Logger import Logger
+    from ForsentekClass import ForsentekClass
 
 
 # ===================================================
@@ -72,3 +73,11 @@ class SupervisorClass:
         idx = rng.permutation(len(pos))
         self.pos_in_t = pos[idx]
         self.desired_F_in_t = force[idx]
+
+    def draw_measurement(self, t) -> None:
+        self.pos = self.pos_in_t[t, :]
+
+    def global_force(self, Snsr: "ForsentekClass") -> NDArray[np.float_]:
+        theta_z = self.pos[2] + Snsr.theta_sensor
+        self.F = Snsr.local_F[0] * np.cos(theta_z) + Snsr.local_F[1] * np.sin(theta_z)
+        return self.F

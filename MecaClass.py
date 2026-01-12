@@ -70,8 +70,11 @@ class MecaClass:
         robot_helpers.apply_motion_config(self.robot, self.cfg)
         logger.info("Config parameters done")
 
+        # set offset due to force sensor and gripper
+        self.set_TRF_wrt_holder()
+        
         # log (and display) current position
-        logger.info("Current arm position: %s", tuple(self.robot.GetPose()))
+        logger.info(f'Current arm position: {tuple(self.robot.GetPose())}')
 
     def home(self):
         logger.info("Homing")
@@ -111,14 +114,14 @@ class MecaClass:
 
     def move_lin(self, x_y_theta):
         logger.info('Moving the robot - linear')
-        starting_pos = tuple(self.robot.GetPose())
+        # starting_pos = tuple(self.robot.GetPose())
         robot_helpers.assert_ready(self.robot)
         points = (x_y_theta[0], x_y_theta[1], self.z_origin, self.theta_x_origin,  self.theta_y_origin,
                   x_y_theta[2])
         print(points)
         self.robot.MoveLin(*points)
-        # self.robot.WaitIdle()
-        # logger.info('Robot finished moving')
+        self.robot.WaitIdle()
+        logger.info('Robot finished moving')
 
     def disconnect(self):
         self.robot.Disconnect()
