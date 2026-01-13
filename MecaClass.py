@@ -9,6 +9,8 @@ import mecademicpy.robot as mdr
 import mecademicpy.robot_initializer as initializer
 import mecademicpy.tools as tools
 
+from numpy.typing import NDArray
+
 import robot_helpers
 
 # Use tool to setup default console and file logger
@@ -105,24 +107,29 @@ class MecaClass:
         self.robot.MoveLin(self.x_origin, self.y_origin, self.z_origin,
                            self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
 
-    def move_to_sleep_pos(self):
+    def move_to_sleep_pos(self) -> None:
         logger.info('Moving the robot to sleep position')
         sleep_pos = (40, 0, 230, 180, 0, 0)
         self.robot.MoveLin(*sleep_pos)
 
-    def move_joints(self, joints):
+    def move_joints(self, joints) -> None:
         logger.info('Moving the robot - joints')
         robot_helpers.assert_ready(self.robot)
         self.robot.MoveJoints(*joints)
         # self.robot.WaitIdle()
         # logger.info('Robot done moving')
 
-    def move_lin(self, x_y_theta):
+    def move_lin(self, points: NDArray) -> None:
         logger.info('Moving the robot - linear')
         starting_pos = tuple(self.robot.GetPose())
         robot_helpers.assert_ready(self.robot)
-        target = (x_y_theta[0], x_y_theta[1], self.z_origin, self.theta_x_origin,
-                  self.theta_y_origin, x_y_theta[2])
+        if np.size(points) == 3:
+            target = (points[0], points[1], self.z_origin, self.theta_x_origin,
+                      self.theta_y_origin, points[2])
+        elif np.size(points) == 6:
+            target = copy.copy(points)
+        else:
+            logger.info('poisition given is not x, y, theta_z or 6 DOFs')
         delta = np.asarray(starting_pos) - np.asarray(target)
         # Rotational indices in Mecademic pose: rx, ry, rz
         rot_idx = np.array([3, 4, 5], dtype=int)
@@ -146,10 +153,37 @@ class MecaClass:
         self.robot.WaitIdle()
         logger.info('Robot finished moving')
 
-    def disconnect(self):
+    def move_lin_allDOFs(self, target: tuple) -> None:
+        logger.info('Moving the robot - linear')
+        starting_pos = tuple(self.robot.GetPose())
+        robot_helpers.assert_ready(self.robot)
+        delta = np.asarray(starting_pos) - np.asarray(target)
+        # Rotational indices in Mecademic pose: rx, ry, rz
+        rot_idx = np.array([3, 4, 5], dtype=int)
+        over = np.abs(delta[rot_idx]) > 180.0
+
+        if np.any(over):
+            # Intermediate pose:
+            # - x,y,z go directly to target
+            # - rotations that are "over" go halfway; others go directly to target
+            mid = np.asarray(target)
+            for i, is_over in zip(rot_idx, over):
+                if is_over:
+                    mid[i] = starting_pos[i] + 0.5 * delta[i]
+
+                logger.info('Large rotation detected. Splitting MoveLin into two steps. '
+                            f'start={starting_pos} mid={mid} target={target}')
+            self.robot.MoveLin(*mid)
+            self.robot.WaitIdle()
+
+        self.robot.MoveLin(*target)
+        self.robot.WaitIdle()
+        logger.info('Robot finished moving')
+
+    def disconnect(self) -> None:
         self.robot.Disconnect()
 
-    def recover_robot(self):
+    def recover_robot(self) -> None:
         logger.warning("Recovering robot from fault...")
 
         self.robot.ResetError()
