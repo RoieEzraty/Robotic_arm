@@ -44,27 +44,40 @@ def sweep_measurement_fixed_origami(x_range, y_range, theta_range, N, robot, for
 
 
 def calibrate_forces_all_axes(m: MecaClass, Snsr: ForsentekClass, weights_gr: list) -> None:
-	voltages_array = np.zeros(3, np.size(weights_gr))
-	forces_array = np.zeros(3, np.size(weights_gr))
-	stds_array = np.zeros(3, np.size(weights_gr))
-	fit_params_array = np.zeros(3, 2)
-	positions = np.array([[140.0, 0.0, 22.5, 179.9, 0.1, 0.1],
-		                  [140.0, 0.0, 22.5, 179.9, 0.1, 0.1],
-		                  [140.0, 0.0, 22.5, 179.9, 0.1, 0.1]])
+	voltages_array = np.zeros([np.size(weights_gr)+1, 3])
+	forces_array = np.zeros([np.size(weights_gr)+1, 3])
+	stds_array = np.zeros([np.size(weights_gr)+1, 3])
+	fit_params_array = np.zeros([2, 3])
+	axes = ['x', 'y', 'z']
+	joints = np.array([[0, 60, 30, -90, -90, 90],  # x axis force sensor at ai1
+		                  [0, 60, 30, -90, -90, 180],   # y axis force sensor at ai2
+		                  [0, 60, -60, 0, -90, 180]])  # z axis force sensor at ai3
+
+	# positions = np.array([[220.0, 0.0, 100, -90, 0, 180],  # x axis force sensor at ai1
+	# 	                  [220.0, 0.0, 100, -90, 0, 90],   # y axis force sensor at ai2
+	# 	                  [220.0, 0.0, 360, 0, 0, 90]])  # z axis force sensor at ai3
 	for i in range(3):
-		m.move_lin(positions[i, :])
-		voltages_vec, forces_vec, stds_vec, fit_params = calibrate_forces_1axis(Snsr, weights_gr)
-		voltages_array[i, :] = voltages_vec
-		forces_array[i, :] = forces_vec
-		stds_array[i, :] = stds_vec
-		fit_params_array[i, :] = fit_params
+		m.move_joints(joints[i, :])
+		voltages_vec, forces_vec, stds_vec, fit_params = calibrate_forces_1axis(Snsr, weights_gr, axes[i])
+		voltages_array[:, i] = voltages_vec
+		forces_array[:, i] = forces_vec
+		stds_array[:, i] = stds_vec
+		fit_params_array[:, i] = fit_params
 	return voltages_array, forces_array, stds_array, fit_params_array
 
 
-def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list):
+def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list, axis: str):
 	"""
 	weights in grams
 	"""
+	if axis == 'x':
+		dim2 = 0
+	elif axis == 'y':
+		dim2 = 1
+	elif axis == 'z':
+		dim2 = 2
+	else:
+		print('axis has to be x, y or z string')
 	weights_kg = np.asarray(weights_gr)*10**(-3)  # weights in kg
 	voltages = np.zeros(np.size(weights_kg))
 	stds = np.zeros(np.size(weights_kg))
@@ -79,14 +92,16 @@ def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list):
 
 	# --- gravity load ---
 	input("Place sensor so only g acts and press Enter...")
-	_, data = Snsr.measure(1)
+	_, data_3d = Snsr.measure(1)
+	data = data_3d[:, dim2]
 	voltage_g = np.mean(data)  # voltage of just the gravity load
 	stds_g = np.std(data)
 	print(f"voltage_g = {voltage_g:.6f} V")
 	    
 	for i, weight in enumerate(weights_kg):
 	    input(f"place weight = {weight:.6f} and press Enter")
-	    _, data = Snsr.measure(1)
+	    _, data_3d = Snsr.measure(1)
+	    data = data_3d[:, dim2]
 	    voltages[i] = np.mean(data)
 	    stds[i] = np.std(data)
 
