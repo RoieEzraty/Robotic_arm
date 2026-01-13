@@ -3,6 +3,7 @@ import configparser
 import logging
 import pathlib
 import numpy as np
+import copy
 
 import mecademicpy.robot as mdr
 import mecademicpy.robot_initializer as initializer
@@ -94,11 +95,15 @@ class MecaClass:
 
     def move_to_origin(self):
         logger.info('Moving the robot to origin')
-        self.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
-                     self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
-        self.robot.WaitIdle()
-        self.MoveLin(self.x_origin, self.y_origin, self.z_origin,
-                     self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
+        current_pos = self.robot.GetPose()
+        if current_pos[2] > self.z_origin:
+            self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
+                               self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
+            self.robot.WaitIdle()
+        else:
+            pass
+        self.robot.MoveLin(self.x_origin, self.y_origin, self.z_origin,
+                           self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
 
     def move_to_sleep_pos(self):
         logger.info('Moving the robot to sleep position')
@@ -114,12 +119,30 @@ class MecaClass:
 
     def move_lin(self, x_y_theta):
         logger.info('Moving the robot - linear')
-        # starting_pos = tuple(self.robot.GetPose())
+        starting_pos = tuple(self.robot.GetPose())
         robot_helpers.assert_ready(self.robot)
-        points = (x_y_theta[0], x_y_theta[1], self.z_origin, self.theta_x_origin,  self.theta_y_origin,
-                  x_y_theta[2])
-        print(points)
-        self.robot.MoveLin(*points)
+        target = (x_y_theta[0], x_y_theta[1], self.z_origin, self.theta_x_origin,
+                  self.theta_y_origin, x_y_theta[2])
+        delta = np.asarray(starting_pos) - np.asarray(target)
+        # Rotational indices in Mecademic pose: rx, ry, rz
+        rot_idx = np.array([3, 4, 5], dtype=int)
+        over = np.abs(delta[rot_idx]) > 180.0
+
+        if np.any(over):
+            # Intermediate pose:
+            # - x,y,z go directly to target
+            # - rotations that are "over" go halfway; others go directly to target
+            mid = np.asarray(target)
+            for i, is_over in zip(rot_idx, over):
+                if is_over:
+                    mid[i] = starting_pos[i] + 0.5 * delta[i]
+
+                logger.info('Large rotation detected. Splitting MoveLin into two steps. '
+                            f'start={starting_pos} mid={mid} target={target}')
+            self.robot.MoveLin(*mid)
+            self.robot.WaitIdle()
+
+        self.robot.MoveLin(*target)
         self.robot.WaitIdle()
         logger.info('Robot finished moving')
 
