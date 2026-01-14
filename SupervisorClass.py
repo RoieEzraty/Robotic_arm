@@ -7,11 +7,12 @@ from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Callable, Union, Optional
 import numpy as np
 
-import file_helpers
+import file_helpers, plot_func
 
 if TYPE_CHECKING:
     from Logger import Logger
     from ForsentekClass import ForsentekClass
+    from MecaClass import MecaClass
 
 
 # ===================================================
@@ -77,7 +78,17 @@ class SupervisorClass:
     def draw_measurement(self, t) -> None:
         self.pos = self.pos_in_t[t, :]
 
-    def global_force(self, Snsr: "ForsentekClass") -> NDArray[np.float_]:
-        theta_z = self.pos[2] + Snsr.theta_sensor
-        self.F = Snsr.local_F[0] * np.cos(theta_z) + Snsr.local_F[1] * np.sin(theta_z)
-        return self.F
+    def global_force(self, Snsr: ForsentekClass, m: MecaClass, plot=False) -> NDArray[np.float_]:
+        force_in_t = Snsr.force_data
+        t = Snsr.t
+        theta_z_deg = m.robot.GetPose()[-1]
+        theta = np.deg2rad(theta_z_deg - 90.0)
+
+        Fx_global_in_t = force_in_t[:, 0]*np.cos(theta) + force_in_t[:, 1]*np.sin(theta)
+        Fy_global_in_t = -force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta)
+
+        if plot:
+            plot_func.force_global_during_measurement(t, Fx_global_in_t, Fy_global_in_t)
+
+        self.Fx = np.mean(Fx_global_in_t)
+        self.Fy = np.mean(Fy_global_in_t)

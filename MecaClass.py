@@ -100,15 +100,17 @@ class MecaClass:
         current_pos = self.robot.GetPose()
         tolerance = 2  # below this no motion is accounted in z axis
         home_joints = (10, 56.5, 0, 0, 30, 180)
-        # if current_pos[2] > self.z_origin + tolerance:
-        #     self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
-        #                        self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
-        #     self.robot.WaitIdle()
-        # else:
-        #     pass
-        # self.robot.MoveLin(self.x_origin, self.y_origin, self.z_origin,
-        #                    self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
         self.move_joints(home_joints)
+        self.robot.WaitIdle()
+        if current_pos[2] > self.z_origin + tolerance:
+            self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
+                               self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
+            self.robot.WaitIdle()
+        else:
+            pass
+        self.robot.MoveLin(self.x_origin, self.y_origin, self.z_origin,
+                           self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
+        self.robot.WaitIdle()
 
     def move_to_sleep_pos(self) -> None:
         logger.info('Moving the robot to sleep position')

@@ -54,13 +54,10 @@ class ForsentekClass:
             N = int(self.T * self.fs)
         self.task.timing.cfg_samp_clk_timing(rate=self.fs, sample_mode=AcquisitionType.FINITE,
                                              samps_per_chan=N)
-        t = np.arange(N) / self.fs
-        data = np.asarray(self.task.read(number_of_samples_per_channel=N)).T
+        self.t = np.arange(N) / self.fs
+        self.voltage_data = np.asarray(self.task.read(number_of_samples_per_channel=N)).T
         if mode == 'F':
-            force_data = self.force_from_voltage(data)
-            return t, force_data
-        elif mode == 'V':
-            return t, data
+            self.force_data = self.force_from_voltage(self.voltage_data)
 
     def calibrate_daily(self) -> None:
         self.calibration_path = self.cfg.get("calibration", "calibration_path")
@@ -71,8 +68,8 @@ class ForsentekClass:
         # self.F_a, self.F_b = force_fit_params[0], force_fit_params[1]
         self.F_a = force_fit_params[1]
         print('make sure robot is in home position=')
-        _, V0_in_t = self.measure(2, mode='V')
-        self.V0 = np.mean(V0_in_t, axis=0)
+        self.measure(2, mode='V')
+        self.V0 = np.mean(self.voltage_data, axis=0)
 
     def mean_force(self, force_in_t):
         self.local_F = np.mean(force_in_t, axis=0)

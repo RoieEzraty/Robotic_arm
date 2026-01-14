@@ -8,15 +8,15 @@ from typing import Tuple, List, Dict, Any, Union, Optional
 from typing import TYPE_CHECKING
 from numpy.typing import NDArray
 
-if TYPE_CHECKING:
-    from Network_State import Network_State
-    from Big_Class import Big_Class
-
 import colors
 
 # ================================
 # functions for plots
 # ================================
+
+# Set the custom color cycle globally without cycler
+colors_lst, red, custom_cmap = colors.color_scheme()
+plt.rcParams['axes.prop_cycle'] = plt.cycler('color', colors_lst)
 
 
 def importants() -> None:
@@ -30,6 +30,15 @@ def importants() -> None:
     # gs = gridspec.GridSpec(3, 1, height_ratios=[1.2, n_springs*0.75, 1.2], figure=fig)
 
     plt.tight_layout()
+    plt.show()
+
+
+def force_global_during_measurement(t: NDArray, Fx_in_t: NDArray, Fy_in_t: NDArray) -> None:
+    plt.plot(t, Fx_in_t)
+    plt.plot(t, Fy_in_t)
+    plt.xlabel(r"$t\,[\mathrm{s}]$")
+    plt.ylabel(r"$F\,[\mathrm{N}]$")
+    plt.legend(['Fx', 'Fy'])
     plt.show()
 
 
