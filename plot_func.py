@@ -33,28 +33,35 @@ def importants() -> None:
     plt.show()
 
 
-def calibration_forces(voltages_vec, forces_vec, stds_vec, fit_params) -> None:
-    # Set the custom color cycle globally without cycler
+def calibration_forces(voltages_arr, forces_arr, stds_arr, fit_params) -> None:
     colors_lst, red, custom_cmap = colors.color_scheme()
     plt.rcParams['axes.prop_cycle'] = plt.cycler('color', colors_lst)
 
-    a, b = fit_params[0], fit_params[1]
+    V = np.asarray(voltages_arr, dtype=float)   # (N,3)
+    F = np.asarray(forces_arr, dtype=float)     # (N,3)
+    sV = np.asarray(stds_arr, dtype=float)      # (N,3)
 
-    V = np.asarray(voltages_vec, dtype=float)
-    F = np.asarray(forces_vec, dtype=float)
-    sV = np.asarray(stds_vec, dtype=float)
-    # Convert voltage std -> force std (propagate uncertainty through F = aV + b)
-    sF = np.abs(a) * sV
+    a = np.asarray(fit_params[1, :], dtype=float)  # (3,)
+    b = np.asarray(fit_params[0, :], dtype=float)  # (3,)
 
-    V_line = np.linspace(V.min(), V.max(), 200)
-    F_line = a * V_line + b
+    # propagate uncertainty: σ_F ≈ |a| σ_V
+    sF = np.abs(a)[None, :] * sV                # (N,3)
 
-    # plt.plot(V, F, ".", label="data")
-    plt.errorbar(V, F, yerr=sF, fmt=".", capsize=3, label="data (±1σ)")
-    plt.plot(V_line, F_line, "-", label=f"fit: F = {a:.4g}·V + {b:.4g}")
-    # data with y-error bars
-    plt.xlabel(r"$V\,[\mathrm{V}]$")
-    plt.ylabel(r"$F\,[\mathrm{N}]$")
-    plt.legend()
-    plt.tight_layout()
+    fig, axs = plt.subplots(nrows=3, ncols=1, sharex=True, figsize=(6, 8), constrained_layout=True)
+
+    axis_lbls = ["x", "y", "z"]
+
+    for k, ax in enumerate(axs):
+        V_line = np.linspace(V[:, k].min(), V[:, k].max(), 300)
+        F_line = a[k] * V_line + b[k]
+
+        ax.errorbar(V[:, k], F[:, k], yerr=sF[:, k], fmt=".", capsize=3, label="data (±1σ)")
+        ax.plot(V_line, F_line, "-", label=fr"fit: $F={a[k]:.4g}V+{b[k]:.4g}$")
+
+        ax.set_ylabel(fr"$F_{axis_lbls[k]}\,[\mathrm{{N}}]$")
+        ax.legend(loc="best")
+        ax.grid(alpha=0.3)
+
+    axs[-1].set_xlabel(r"$V\,[\mathrm{V}]$")
+
     plt.show()

@@ -47,22 +47,32 @@ def calibrate_forces_all_axes(m: MecaClass, Snsr: ForsentekClass, weights_gr: li
 	voltages_array = np.zeros([np.size(weights_gr)+1, 3])
 	forces_array = np.zeros([np.size(weights_gr)+1, 3])
 	stds_array = np.zeros([np.size(weights_gr)+1, 3])
-	fit_params_array = np.zeros([2, 3])
 	axes = ['x', 'y', 'z']
 	joints = np.array([[0, 60, 30, -90, -90, 90],  # x axis force sensor at ai1
-		                  [0, 60, 30, -90, -90, 180],   # y axis force sensor at ai2
-		                  [0, 60, -60, 0, -90, 180]])  # z axis force sensor at ai3
+		               [0, 60, 30, -90, -90, 180],   # y axis force sensor at ai2
+		               [0, 60, -60, 0, -90, 180]])  # z axis force sensor at ai3
 
 	# positions = np.array([[220.0, 0.0, 100, -90, 0, 180],  # x axis force sensor at ai1
 	# 	                  [220.0, 0.0, 100, -90, 0, 90],   # y axis force sensor at ai2
 	# 	                  [220.0, 0.0, 360, 0, 0, 90]])  # z axis force sensor at ai3
 	for i in range(3):
 		m.move_joints(joints[i, :])
-		voltages_vec, forces_vec, stds_vec, fit_params = calibrate_forces_1axis(Snsr, weights_gr, axes[i])
+		voltages_vec, forces_vec, stds_vec = calibrate_forces_1axis(Snsr, weights_gr, axes[i])
 		voltages_array[:, i] = voltages_vec
 		forces_array[:, i] = forces_vec
 		stds_array[:, i] = stds_vec
-		fit_params_array[:, i] = fit_params
+
+	print('voltages_array', voltages_array)
+	print('forces_array', forces_array)
+	print('stds_array', stds_array)
+
+	# ---- save ONE combined tri-axial file (9 columns) ----
+	timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+	filename = f"calibration_triaxial_{timestamp}.csv"
+	file_helpers.save_calibration_csv(filename, voltages_array, forces_array, stds_array)
+
+	fit_params_array = helpers.fit_force_vs_voltage(voltages_array, forces_array, stds_array)
+
 	return voltages_array, forces_array, stds_array, fit_params_array
 
 
@@ -83,16 +93,9 @@ def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list, axis: str):
 	stds = np.zeros(np.size(weights_kg))
 	g = 9.81
 
-	# # --- zero / flat ---
-	# input("Place sensor flat (no load) and press Enter...")
-	# _, data = Snsr.measure(1)
-	# voltage_flat = np.mean(data)
-	# stds_flat = np.std(data)
-	# print(f"voltage_flat = {voltage_flat:.6f} V")
-
 	# --- gravity load ---
 	input("Place sensor so only g acts and press Enter...")
-	_, data_3d = Snsr.measure(1)
+	_, data_3d = Snsr.measure(1, mode='V')
 	data = data_3d[:, dim2]
 	voltage_g = np.mean(data)  # voltage of just the gravity load
 	stds_g = np.std(data)
@@ -100,16 +103,10 @@ def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list, axis: str):
 	    
 	for i, weight in enumerate(weights_kg):
 	    input(f"place weight = {weight:.6f} and press Enter")
-	    _, data_3d = Snsr.measure(1)
+	    _, data_3d = Snsr.measure(1, mode='V')
 	    data = data_3d[:, dim2]
 	    voltages[i] = np.mean(data)
 	    stds[i] = np.std(data)
-
-	# voltages_vec = np.append(voltage_flat, voltages-voltage_g)
-	# stds_vec = np.append(stds_flat, stds)
-	# forces_vec = g * np.append(0, weights_kg)
-	# fit_params = helpers.fit_force_vs_voltage(voltages_vec, forces_vec, stds_vec)
-	# plot_func.calibration_forces(voltages_vec, forces_vec, stds_vec, fit_params)
 
 	voltages_vec = np.append(voltage_g, voltages)
 	stds_vec = np.append(stds_g, stds)
@@ -117,14 +114,13 @@ def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list, axis: str):
 	print('v', voltages_vec)
 	print('f', forces_vec)
 	print('std', stds_vec)
-
-	fit_params = helpers.fit_force_vs_voltage(voltages_vec, forces_vec, stds_vec)
 	
-	plot_func.calibration_forces(voltages_vec, forces_vec, stds_vec, fit_params)
+	plt.errorbar(voltages_vec, forces_vec, yerr=stds_vec, fmt=".", capsize=3, label="data (±1σ)")
+	# data with y-error bars
+	plt.xlabel(r"$V\,[\mathrm{V}]$")
+	plt.ylabel(r"$F\,[\mathrm{N}]$")
+	plt.legend()
+	plt.tight_layout()
+	plt.show()
 
-	timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-	filename = f"calibration_{timestamp}.csv"
-
-	file_helpers.save_calibration_csv(filename, voltages_vec, forces_vec, stds_vec)
-
-	return voltages_vec, forces_vec, stds_vec, fit_params
+	return voltages_vec, forces_vec, stds_vec

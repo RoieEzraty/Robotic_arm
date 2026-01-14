@@ -16,26 +16,30 @@ def load_pos_force(path: str):
     return rows
 
 
-def save_calibration_csv(path, voltages_vec, weights_vec, stds_vec):
-    assert len(voltages_vec) == len(weights_vec), "Length mismatch"
-
+def save_calibration_csv(path, voltages_arr, forces_arr, stds_arr):
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["voltage_V", "weight_N", "std"])  # header
-        for v, w, s in zip(voltages_vec, weights_vec, stds_vec):
-            writer.writerow([v, w, s])
+        writer.writerow([
+            "Vx_V", "Vy_V", "Vz_V",
+            "Fx_N", "Fy_N", "Fz_N",
+            "stdVx_V", "stdVy_V", "stdVz_V"
+        ])
+        for i in range(voltages_arr.shape[0]):
+            writer.writerow([
+                voltages_arr[i, 0], voltages_arr[i, 1], voltages_arr[i, 2],
+                forces_arr[i, 0], forces_arr[i, 1], forces_arr[i, 2],
+                stds_arr[i, 0], stds_arr[i, 1], stds_arr[i, 2],
+            ])
 
 
 def load_calibration_csv(path):
-    voltages = []
-    forces = []
-    stds = []
-
+    V, F, S = [], [], []
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            voltages.append(float(row["voltage_V"]))
-            forces.append(float(row["weight_N"]))
-            stds.append(float(row["std"]))
+            V.append([float(row["Vx_V"]), float(row["Vy_V"]), float(row["Vz_V"])])
+            F.append([float(row["Fx_N"]), float(row["Fy_N"]), float(row["Fz_N"])])
+            S.append([float(row["stdVx_V"]), float(row["stdVy_V"]), float(row["stdVz_V"])])
 
-    return np.asarray(voltages), np.asarray(forces), np.asarray(stds)
+    return np.asarray(V, dtype=float), np.asarray(F, dtype=float), np.asarray(S, dtype=float)
+    # return np.asarray(V), np.asarray(F), np.asarray(S)

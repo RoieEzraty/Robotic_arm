@@ -42,17 +42,12 @@ class ForsentekClass:
             self.task.ai_channels.add_ai_voltage_chan(ch, terminal_config=TerminalConfiguration.RSE,
                                                       min_val=self.min_val, max_val=self.max_val)
 
-        # -------
-        self.calibration_path = self.cfg.get("calibration", "calibration_path")
-        voltages_vec, forces_vec, stds_vec = file_helpers.load_calibration_csv(self.calibration_path)
-        force_fit_params = helpers.fit_force_vs_voltage(voltages_vec, forces_vec, stds_vec)
-        plot_func.calibration_forces(voltages_vec, forces_vec, stds_vec, force_fit_params)
-        self.F_a, self.F_b = force_fit_params[0], force_fit_params[1]
-
     def force_from_voltage(self, V):
-        return self.F_a * V + self.F_b
+        # return self.F_a * V + self.F_b
+        return self.F_a*(V-self.V0)
 
-    def measure(self, T: Optional[float] = None) -> Tuple[NDArray[float], NDArray[float]]:
+    def measure(self, T: Optional[float] = None, mode: str = 'F') -> Tuple[NDArray[float], 
+                                                                           NDArray[float]]:
         if T is not None:
             N = int(T * self.fs)
         else:
@@ -61,8 +56,23 @@ class ForsentekClass:
                                              samps_per_chan=N)
         t = np.arange(N) / self.fs
         data = np.asarray(self.task.read(number_of_samples_per_channel=N)).T
-        force_data = self.force_from_voltage(data)
-        return t, force_data
+        if mode == 'F':
+            force_data = self.force_from_voltage(data)
+            return t, force_data
+        elif mode == 'V':
+            return t, data
+
+    def calibrate_daily(self) -> None:
+        self.calibration_path = self.cfg.get("calibration", "calibration_path")
+        voltages_arr, forces_arr, stds_arr = file_helpers.load_calibration_csv(self.calibration_path)
+        force_fit_params = helpers.fit_force_vs_voltage(voltages_arr, forces_arr, stds_arr)
+        print('force_fit_params=', force_fit_params)
+        plot_func.calibration_forces(voltages_arr, forces_arr, stds_arr, force_fit_params)
+        # self.F_a, self.F_b = force_fit_params[0], force_fit_params[1]
+        self.F_a = force_fit_params[1]
+        print('make sure robot is in home position=')
+        _, V0_in_t = self.measure(2, mode='V')
+        self.V0 = np.mean(V0_in_t, axis=0)
 
     def mean_force(self, force_in_t):
         self.local_F = np.mean(force_in_t, axis=0)
