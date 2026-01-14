@@ -4,6 +4,7 @@ import logging
 import pathlib
 import numpy as np
 import copy
+import ast
 
 import mecademicpy.robot as mdr
 import mecademicpy.robot_initializer as initializer
@@ -34,13 +35,16 @@ class MecaClass:
         self.robot = initializer.RobotWithTools()
 
         # get origin
-        self.x_origin = self.cfg.getfloat("position.origin", "x_origin")
-        self.y_origin = self.cfg.getfloat("position.origin", "y_origin")
-        self.z_origin = self.cfg.getfloat("position.origin", "z_origin")
-        self.z_sleep = self.cfg.getfloat("position.origin", "z_sleep")
-        self.theta_x_origin = self.cfg.getfloat("position.origin", "theta_x_origin")
-        self.theta_y_origin = self.cfg.getfloat("position.origin", "theta_y_origin")
-        self.theta_z_origin = self.cfg.getfloat("position.origin", "theta_z_origin")
+        # self.x_origin = self.cfg.getfloat("position.origin", "x_origin")
+        # self.y_origin = self.cfg.getfloat("position.origin", "y_origin")
+        # self.z_origin = self.cfg.getfloat("position.origin", "z_origin")
+        # self.z_sleep = self.cfg.getfloat("position.origin", "z_sleep")
+        # self.theta_x_origin = self.cfg.getfloat("position.origin", "theta_x_origin")
+        # self.theta_y_origin = self.cfg.getfloat("position.origin", "theta_y_origin")
+        # self.theta_z_origin = self.cfg.getfloat("position.origin", "theta_z_origin")
+        self.pos_origin = ast.literal_eval(self.cfg.get("position.origin", "pos_origin"))
+        self.joints_origin = ast.literal_eval(self.cfg.get("position.origin", "joints_origin"))
+        self.joints_sleep = ast.literal_eval(self.cfg.get("position.origin", "joints_sleep"))
 
     def connect(self):
         # try to connect
@@ -99,37 +103,42 @@ class MecaClass:
         logger.info('Moving the robot to origin')
         current_pos = self.robot.GetPose()
         tolerance = 2  # below this no motion is accounted in z axis
-        home_joints = (10, 56.5, 0, 0, 30, 180)
-        self.move_joints(home_joints)
+        # home_joints = (10, 56.5, 0, 0, 30, 180)
+        self.move_joints(self.joints_origin)
         self.robot.WaitIdle()
-        if current_pos[2] > self.z_origin + tolerance:
-            self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
-                               self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
-            self.robot.WaitIdle()
-        else:
-            pass
-        self.robot.MoveLin(self.x_origin, self.y_origin, self.z_origin,
-                           self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
+        # if current_pos[2] > self.z_origin + tolerance:
+        #     self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
+        #                        self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
+        #     self.robot.WaitIdle()
+        # else:
+        #     pass
+        self.robot.MoveLin(*self.pos_origin)
         self.robot.WaitIdle()
 
     def move_to_sleep_pos(self) -> None:
         logger.info('Moving the robot to sleep position')
-        # sleep_pos = (40, 0, 230, 180, 0, 0)
-        # self.move_pos(sleep_pos)
-        sleep_joints = (0, -30, 20, 0, 100, 90)
-        self.move_joints(sleep_joints)
+        self.move_joints(self.joints_sleep)
 
     def move_joints(self, joints) -> None:
-        logger.info('Moving the robot - joints')
-        robot_helpers.assert_ready(self.robot)
-        self.robot.MoveJoints(*joints)
-        self.robot.WaitIdle()
-        logger.info('Robot done moving')
+        # if np.size(joints) == 3:
+        #     current_joints = self.robot.GetJoints()
+        #     target = (joints[0], joints[1], current_joints[2], current_joints[3],
+        #               current_joints[4], joints[2])
+        #     logger.info('poisition given is not x, y, theta_z or 6 DOFs')
+        if np.size(joints) == 6:
+            target = copy.copy(joints)
+            logger.info('Moving the robot - joints')
+            robot_helpers.assert_ready(self.robot)
+            self.robot.MoveJoints(*target)
+            self.robot.WaitIdle()
+            logger.info('Robot done moving')
+        else:
+            logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
     def move_pos(self, points: NDArray) -> None:
         if np.size(points) == 3:
-            target = (points[0], points[1], self.z_origin, self.theta_x_origin,
-                      self.theta_y_origin, points[2])
+            target = (points[0], points[1], self.pos_origin[2], self.pos_origin[3], self.pos_origin[4],
+                      points[2])
         elif np.size(points) == 6:
             target = copy.copy(points)
         else:

@@ -27,7 +27,7 @@ class SupervisorClass:
     Attributes
     ----------
 
-    problem        - str, type of measurement used in problem
+    problem - str, type of measurement used in problem
                  'tau' = torque is optimized
                  'Fy'  = force in y direction is optimized
     """
