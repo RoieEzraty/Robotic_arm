@@ -31,3 +31,43 @@ def fit_force_vs_voltage(voltages_array: np.ndarray, forces_array: np.ndarray,
             a, b = poly.polyfit(voltages_array[:, dim], forces_array[:, dim], deg=1, w=w)
         fit_params[:, dim] = np.asarray(np.array([a, b]), dtype=float).reshape(2,)
     return fit_params
+
+
+def get_total_angle(origin, tip_pos, prev_total_angle):
+    """
+    angle between tip and last fixed node, CCW
+    pos_arr: array of shape (H, 2)
+    Returns: angle (radians) in [-pi, pi], measured from -x axis
+    
+    Parameters
+    ----------
+    tip_pos          - (2,) array, Current tip position.
+    prev_total_angle - float, The accumulated unwrapped angle up to the previous timestep.
+    L                - float, Edge length (used to define reference point at (L,0)).
+
+    Returns
+    -------
+    new_total_angle : float, The unwrapped angle (can exceed ±pi, ±2pi, ±3pi, ...).
+    """
+    # ------ total angle [-pi/2, pi/2] ------
+    dx, dy = origin - tip_pos  # displacement vector
+
+    # shift so that 0 is along -x
+    total_angle = np.arctan2(dy, dx) - np.pi
+    # normalize back to [-pi, pi]
+    total_angle = (total_angle + np.pi) % (2*np.pi) - np.pi
+
+    # ------ correct for wrapping around center ------
+    prev_theta_wrapped = ((prev_total_angle + np.pi) % (2*np.pi)) - np.pi
+    delta = total_angle - prev_theta_wrapped
+
+    # correct jumpt across -x axis - adding or subtracting 2π
+    if delta > np.pi:
+        delta -= 2*np.pi
+    elif delta < -np.pi:
+        delta += 2*np.pi
+
+    # Update cumulative angle
+    total_angle = prev_total_angle + delta
+
+    return total_angle

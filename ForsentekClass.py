@@ -42,6 +42,8 @@ class ForsentekClass:
             self.task.ai_channels.add_ai_voltage_chan(ch, terminal_config=TerminalConfiguration.RSE,
                                                       min_val=self.min_val, max_val=self.max_val)
 
+        self.norm_force = self.cfg.getfloat("normalization", "norm_force", fallback=None)
+
     def force_from_voltage(self, V):
         # return self.F_a * V + self.F_b
         return self.F_a*(V-self.V0)

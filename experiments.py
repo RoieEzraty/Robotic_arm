@@ -16,31 +16,38 @@ import plot_func, file_helpers, helpers
 if TYPE_CHECKING:
 	from Logger import Logger
 	from ForsentekClass import ForsentekClass
+	from SupervisorClass import SupervisorClass
 	from MecaClass import MecaClass
 
 
-def sweep_measurement_fixed_origami(x_range, y_range, theta_range, N, robot, force_sensor):
-	x_vec = np.linspace(-x_range, x_range, N)
-	y_vec = np.linspace(-y_range, y_range, N)
-	theta_vec = np.linspace(-theta_range, theta_range, N)
+def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: SupervisorClass,
+	                                x_range: float, y_range: float, theta_range: float, N: int):
+	if N == 1:
+		x_vec = np.array([x_range])
+		y_vec = np.array([y_range])
+		theta_vec = np.array([theta_range])
+	else:
+		x_vec = np.linspace(-x_range, x_range, N)
+		y_vec = np.linspace(-y_range, y_range, N)
+		theta_vec = np.linspace(-theta_range, theta_range, N)
 	x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)
-
-	logger = Logger()
-	print("Logging to:", logger.path)
-	logger.start()
+	F_vec = np.zeros([2, N])
 
 	for i in range(N):
 		pos = x_y_theta_vec[i, :]  # [x, y, theta_z]
 
 		# move arm
-		robot.move_lin(pos)
+		print(f"moving robot to pos={pos}")
+		m.move_pos(pos)
 
 		# record force
-		F = force_sensor.record(pos[3])   # [Fx, Fy, torque]
-		logger.log(pos, F)
-
-	logger.stop()
+		print("recording force")
+		Snsr.measure(2)   # [Fx, Fy, torque]
+		Sprvsr.global_force(Snsr, m)
+		F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])
 	print("finished logging force measurements")
+
+	return x_y_theta_vec, F_vec
 
 
 def calibrate_forces_all_axes(m: MecaClass, Snsr: ForsentekClass, weights_gr: list) -> None:

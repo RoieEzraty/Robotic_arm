@@ -25,23 +25,23 @@ def apply_motion_config(robot, cfg):
         return False
 
     # Cartesian
-    lin_vel = getfloat("motion.cartesian", "lin_vel")
+    lin_vel = getfloat("motion", "lin_vel")
     if lin_vel is not None:
         call_if_exists("SetCartLinVel", lin_vel)
 
-    lin_acc = getfloat("motion.cartesian", "lin_acc")
+    lin_acc = getfloat("motion", "lin_acc")
     if lin_acc is not None:
         call_if_exists("SetCartLinAcc", lin_acc)
 
     # Joint
-    jvel = getfloat("motion.joint", "vel")
+    jvel = getfloat("motion", "vel")
     if jvel is not None:
         (call_if_exists("SetJointVel", jvel)
          or call_if_exists("SetJointsVel", jvel)
          or call_if_exists("SetJointVelPct", jvel)
          or call_if_exists("SetJointsVelPct", jvel))
 
-    jacc = getfloat("motion.joint", "acc")
+    jacc = getfloat("motion", "acc")
     if jacc is not None:
         (call_if_exists("SetJointAcc", jacc)
          or call_if_exists("SetJointsAcc", jacc)
@@ -49,7 +49,7 @@ def apply_motion_config(robot, cfg):
          or call_if_exists("SetJointsAccPct", jacc))
 
     # Path
-    blending = getint("motion.path", "blending")
+    blending = getint("motion", "blending")
     if blending is not None:
         call_if_exists("SetBlending", blending)
 

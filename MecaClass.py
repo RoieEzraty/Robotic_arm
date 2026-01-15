@@ -35,16 +35,11 @@ class MecaClass:
         self.robot = initializer.RobotWithTools()
 
         # get origin
-        # self.x_origin = self.cfg.getfloat("position.origin", "x_origin")
-        # self.y_origin = self.cfg.getfloat("position.origin", "y_origin")
-        # self.z_origin = self.cfg.getfloat("position.origin", "z_origin")
-        # self.z_sleep = self.cfg.getfloat("position.origin", "z_sleep")
-        # self.theta_x_origin = self.cfg.getfloat("position.origin", "theta_x_origin")
-        # self.theta_y_origin = self.cfg.getfloat("position.origin", "theta_y_origin")
-        # self.theta_z_origin = self.cfg.getfloat("position.origin", "theta_z_origin")
-        self.pos_origin = ast.literal_eval(self.cfg.get("position.origin", "pos_origin"))
-        self.joints_origin = ast.literal_eval(self.cfg.get("position.origin", "joints_origin"))
-        self.joints_sleep = ast.literal_eval(self.cfg.get("position.origin", "joints_sleep"))
+        self.pos_home = ast.literal_eval(self.cfg.get("position", "pos_home"))
+        self.joints_home = ast.literal_eval(self.cfg.get("position", "joints_home"))
+        self.pos_sleep = ast.literal_eval(self.cfg.get("position", "pos_sleep"))
+        self.joints_sleep = ast.literal_eval(self.cfg.get("position", "joints_sleep"))
+        self.pos_origin = ast.literal_eval(self.cfg.get("position", "pos_origin"))
 
     def connect(self):
         # try to connect
@@ -91,8 +86,8 @@ class MecaClass:
         logger.info("Robot at home")
 
     def set_TRF_wrt_holder(self):
-        load_cell_thick = self.cfg.getfloat("position.origin", "load_cell_thick", fallback=None)
-        holder_len = self.cfg.getfloat("position.origin", "holder_len", fallback=None)
+        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
+        holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
         self.tip_length = load_cell_thick + holder_len
         self.robot.SetTrf(0.0, 0.0, self.tip_length, 0.0, 0.0, 0.0)
 
@@ -100,11 +95,11 @@ class MecaClass:
     #     logger.info('Moving the robot to floor')
 
     def move_to_origin(self):
-        logger.info('Moving the robot to origin')
-        current_pos = self.robot.GetPose()
-        tolerance = 2  # below this no motion is accounted in z axis
+        # current_pos = self.robot.GetPose()
+        # tolerance = 2  # below this no motion is accounted in z axis
         # home_joints = (10, 56.5, 0, 0, 30, 180)
-        self.move_joints(self.joints_origin)
+        logger.info('Moving the robot to origin')
+        self.move_joints(self.joints_home)
         self.robot.WaitIdle()
         # if current_pos[2] > self.z_origin + tolerance:
         #     self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
@@ -112,7 +107,7 @@ class MecaClass:
         #     self.robot.WaitIdle()
         # else:
         #     pass
-        self.robot.MoveLin(*self.pos_origin)
+        self.robot.MoveLin(*self.pos_home)
         self.robot.WaitIdle()
 
     def move_to_sleep_pos(self) -> None:
@@ -137,7 +132,7 @@ class MecaClass:
 
     def move_pos(self, points: NDArray) -> None:
         if np.size(points) == 3:
-            target = (points[0], points[1], self.pos_origin[2], self.pos_origin[3], self.pos_origin[4],
+            target = (points[0], points[1], self.pos_home[2], self.pos_home[3], self.pos_home[4],
                       points[2])
         elif np.size(points) == 6:
             target = copy.copy(points)
@@ -151,12 +146,19 @@ class MecaClass:
             mid = self.correct_too_big_rot(target)
         self.move_lin(target)
 
+        # save current position as self.current_pos after every movement
+        self._get_current_pos()
+
     def move_lin(self, target):
         logger.info('Moving the robot - linear')
         robot_helpers.assert_ready(self.robot)
         self.robot.MoveLin(*target)
         self.robot.WaitIdle()
         logger.info('Robot finished moving')
+
+    def _get_current_pos(self) -> None:
+        current_pos_6 = self.robot.GetPose()
+        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], current_pos_6[-1]])
 
     def correct_too_big_rot(self, target):
         # correct for too big a twist
