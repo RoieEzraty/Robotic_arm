@@ -43,7 +43,7 @@ def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: 
 		# record force
 		print("recording force")
 		Snsr.measure(2)   # [Fx, Fy, torque]
-		Sprvsr.global_force(Snsr, m)
+		Sprvsr.global_force(Snsr, m, i)
 		F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])
 	print("finished logging force measurements")
 

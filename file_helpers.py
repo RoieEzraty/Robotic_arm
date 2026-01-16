@@ -63,7 +63,7 @@ def write_supervisor_dataset(
                                  float(x_y_theta[i, 1]),
                                  float(x_y_theta[i, 2]))
 
-            Fx, Fy = float(F_vec[i, 0]), float(F_vec[i, 0])
+            Fx, Fy = float(F_vec[0, i]), float(F_vec[1, i])
 
             # ---- write row ----
             t_unix = time.time()
@@ -99,4 +99,20 @@ def load_calibration_csv(path):
             S.append([float(row["stdVx_V"]), float(row["stdVy_V"]), float(row["stdVz_V"])])
 
     return np.asarray(V, dtype=float), np.asarray(F, dtype=float), np.asarray(S, dtype=float)
-    # return np.asarray(V), np.asarray(F), np.asarray(S)
+
+
+def save_V0(path, V0):
+    """
+    Save offset of voltage of today
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(path, V0=np.asarray(V0, dtype=float))
+
+
+def load_V0(path):
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"V0 file not found: {path}")
+    data = np.load(path)
+    return data["V0"]

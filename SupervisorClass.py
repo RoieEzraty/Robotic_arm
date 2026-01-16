@@ -101,7 +101,7 @@ class SupervisorClass:
     def draw_measurement(self, t) -> None:
         self.pos = self.pos_in_t[t, :]
 
-    def global_force(self, Snsr: ForsentekClass, m: MecaClass, t: int,
+    def global_force(self, Snsr: ForsentekClass, m: MecaClass, t: Optional[int] = None,
                      plot: bool = False) -> NDArray[np.float_]:
         force_in_t = Snsr.force_data
         measure_t = Snsr.t
@@ -116,7 +116,8 @@ class SupervisorClass:
 
         self.Fx = np.mean(Fx_global_in_t)
         self.Fy = np.mean(Fy_global_in_t)
-        self.F_in_t[t, :] = np.array([self.Fx, self.Fy])
+        if t is not None:
+            self.F_in_t[t, :] = np.array([self.Fx, self.Fy])
 
     def calc_loss(self, t: int, norm_force: float) -> None:
         self.loss = self.F_in_t[t, :] - self.desired_F_in_t[t, :]  # [N]
@@ -131,18 +132,18 @@ class SupervisorClass:
         tip_pos = self.pos_update_in_t[t, :2]
         print('current update tip_pos = ', tip_pos)
         if t == 0:
-            prev_tip_update = m.current_pos
+            prev_pos_update = m.current_pos
         else:
-            prev_tip_update = self.tip_update_in_t[t-1, :]
-        print('previous tip update value = ', prev_tip_update)        
+            prev_pos_update = self.pos_update_in_t[t-1, :]
+        print('previous tip update value = ', prev_pos_update)        
 
-        sgn_x = np.sign(prev_tip_update[0]) 
-        sgn_y = np.sign(prev_tip_update[1]) 
-        delta_x_update = self.alpha * self.loss[0] * sgn_x
-        delta_y_update = - self.alpha * self.loss[0] * sgn_x
-        delta_theta_update = - self.alpha * self.loss[1]
+        sgn_x = np.sign(prev_pos_update[0]) 
+        sgn_y = np.sign(prev_pos_update[1]) 
+        delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
+        delta_y_update = - self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
+        delta_theta_update = - self.alpha * self.loss_norm[1] * m.norm_angle
 
-        self.pos_update_in_t[t, :] = prev_tip_update + np.array([delta_x_update, delta_y_update,
+        self.pos_update_in_t[t, :] = prev_pos_update + np.array([delta_x_update, delta_y_update,
                                                                  delta_theta_update])
         print('pos_update_in_t[t, :] before correct for tot angle = ', self.pos_update_in_t[t, :])
 

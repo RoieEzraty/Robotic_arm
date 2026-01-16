@@ -41,6 +41,9 @@ class MecaClass:
         self.joints_sleep = ast.literal_eval(self.cfg.get("position", "joints_sleep"))
         self.pos_origin = ast.literal_eval(self.cfg.get("position", "pos_origin"))
 
+        self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
+        self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))
+
     def connect(self):
         # try to connect
         try:
