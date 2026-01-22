@@ -12,7 +12,7 @@ import mecademicpy.tools as tools
 
 from numpy.typing import NDArray
 
-import robot_helpers
+import robot_helpers, file_helpers, helpers
 
 # Use tool to setup default console and file logger
 tools.SetDefaultLogger(logging.INFO, f'{pathlib.Path(__file__).stem}.log')
@@ -81,6 +81,11 @@ class MecaClass:
         # log (and display) current position
         logger.info(f'Current arm position: {tuple(self.robot.GetPose())}')
 
+        pts = file_helpers.load_perimeter_xy("arm limits in x y.xlsx", x_col="x", y_col="y")
+        # allowed radius of motion, and offset origin
+        self.cx, self.cy, self.R = robot_helpers.fit_circle_xy(pts)
+        print("Circle:", self.cx, self.cy, self.R)
+
     def home(self):
         logger.info("Homing")
         # robot_helpers.assert_ready(self.robot)
@@ -102,7 +107,7 @@ class MecaClass:
         # tolerance = 2  # below this no motion is accounted in z axis
         # home_joints = (10, 56.5, 0, 0, 30, 180)
         logger.info('Moving the robot to origin')
-        self.move_joints(self.joints_home)
+        # self.move_joints(self.joints_home)
         self.robot.WaitIdle()
         # if current_pos[2] > self.z_origin + tolerance:
         #     self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
@@ -135,8 +140,9 @@ class MecaClass:
 
     def move_pos(self, points: NDArray) -> None:
         if np.size(points) == 3:
-            target = (points[0], points[1], self.pos_home[2], self.pos_home[3], self.pos_home[4],
-                      points[2])
+            point_sanit = self.sanitize_target(points)
+            target = (point_sanit[0], point_sanit[1], self.pos_home[2], self.pos_home[3],
+                      self.pos_home[4], point_sanit[2])
         elif np.size(points) == 6:
             target = copy.copy(points)
         else:
@@ -155,6 +161,13 @@ class MecaClass:
     def move_lin(self, target):
         logger.info('Moving the robot - linear')
         robot_helpers.assert_ready(self.robot)
+        try:
+            self.robot.MoveLin(*target)
+            self.robot.WaitIdle()
+        except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
+                Exception):
+            # Robot likely entered error on invalid move
+            self._recover_robot()
         self.robot.MoveLin(*target)
         self.robot.WaitIdle()
         logger.info('Robot finished moving')
@@ -162,6 +175,26 @@ class MecaClass:
     def _get_current_pos(self) -> None:
         current_pos_6 = self.robot.GetPose()
         self.current_pos = np.array([current_pos_6[0], current_pos_6[1], current_pos_6[-1]])
+
+    def sanitize_target(self, points3):
+        # x, y, z, rx, ry, rz = map(float, target6)
+
+        # # TODO: set these to YOUR safe numbers
+        # XMIN, XMAX = 40.0, 220.0
+        # YMIN, YMAX = -120.0, 120.0
+        # ZMIN, ZMAX = 10.0, 220.0
+
+        # x = helpers.clamp(x, XMIN, XMAX)
+        # y = helpers.clamp(y, YMIN, YMAX)
+        # z = helpers.clamp(z, ZMIN, ZMAX)
+
+        # # keep angles in a reasonable wrapped range
+        # rx = helpers.wrap_deg(rx)
+        # ry = helpers.wrap_deg(ry)
+        # rz = helpers.wrap_deg(rz)
+        x, y, rz = map(float, points3)
+        x, y = self.clamp_to_circle_xy(x, y)
+        return np.array([x, y, rz])
 
     def correct_too_big_rot(self, target):
         # correct for too big a twist
@@ -183,13 +216,38 @@ class MecaClass:
         else:
             return None
 
+    def clamp_to_circle_xy(self, x, y, margin=0.0):
+        """
+        If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
+        """
+        R_eff = max(0.0, self.R - margin)
+        dx = x - self.cx
+        dy = y - self.cy
+        r = np.hypot(dx, dy)
+
+        if r <= R_eff or r == 0.0:
+            return float(x), float(y)  # unchanged
+
+        scale = R_eff / r
+        x2 = self.cx + dx * scale
+        y2 = self.cy + dy * scale
+        print(f'clamped from {x},{y} to {x2}, {y2}')
+        return float(x2), float(y2)
+
     def disconnect(self) -> None:
         self.robot.Disconnect()
 
-    def recover_robot(self) -> None:
+    def _recover_robot(self) -> None:
         logger.warning("Recovering robot from fault...")
 
+        # Clear queue just in case, then reset and resume
+        try:
+            self.robot.ClearMotion()
+        except Exception:
+            pass
+
         self.robot.ResetError()
+        self.robot.ResumeMotion()
         self.robot.WaitIdle()
 
         self.robot.DeactivateRobot()

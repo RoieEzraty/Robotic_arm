@@ -1,8 +1,9 @@
 from __future__ import annotations
 import copy
 import csv
-import numpy as np
 import time
+import numpy as np
+import pandas as pd
 
 from pathlib import Path
 from datetime import datetime
@@ -116,3 +117,34 @@ def load_V0(path):
         raise FileNotFoundError(f"V0 file not found: {path}")
     data = np.load(path)
     return data["V0"]
+
+
+def load_perimeter_xy(
+    xlsx_path: str,
+    sheet_name=0,          # 0 = first sheet
+    x_col: str = "x",
+    y_col: str = "y",
+) -> np.ndarray:
+    """
+    Loads perimeter points from an Excel file with columns named 'x' and 'y'.
+    Returns: (N,2) float array [[x1,y1],...]
+    """
+    df = pd.read_excel(xlsx_path, sheet_name=sheet_name)
+
+    # Ensure required columns exist (case-insensitive fallback)
+    cols_lower = {c.lower(): c for c in df.columns}
+    if x_col not in df.columns and x_col.lower() in cols_lower:
+        x_col = cols_lower[x_col.lower()]
+    if y_col not in df.columns and y_col.lower() in cols_lower:
+        y_col = cols_lower[y_col.lower()]
+
+    if x_col not in df.columns or y_col not in df.columns:
+        raise ValueError(f"Expected columns '{x_col}' and '{y_col}'. Found: {list(df.columns)}")
+
+    # Keep only numeric x,y rows
+    pts = df[[x_col, y_col]].apply(pd.to_numeric, errors="coerce").dropna()
+
+    if len(pts) < 3:
+        raise ValueError(f"Need at least 3 perimeter points to fit a circle. Got {len(pts)}.")
+
+    return pts.to_numpy(dtype=float)

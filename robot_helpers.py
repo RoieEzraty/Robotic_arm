@@ -1,5 +1,6 @@
 # helpers.py
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +80,24 @@ def on_robot_state(state):
             f"error_id={state.error_id} | "
             f"description={state.error_description}"
         )
+
+
+def fit_circle_xy(points_xy: np.ndarray):
+    """
+    Least-squares circle fit (Kåsa-style).
+    points_xy: (N,2) array with columns [x,y]
+    returns: (cx, cy, R)
+    """
+    x = points_xy[:, 0].astype(float)
+    y = points_xy[:, 1].astype(float)
+
+    # Solve: x^2 + y^2 + A x + B y + C = 0
+    A = np.c_[x, y, np.ones_like(x)]
+    b = -(x**2 + y**2)
+    sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+    a, b_, c = sol
+
+    cx = -a / 2.0
+    cy = -b_ / 2.0
+    R = np.sqrt(max(0.0, cx**2 + cy**2 - c))
+    return float(cx), float(cy), float(R)

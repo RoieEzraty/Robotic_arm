@@ -71,3 +71,30 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     total_angle = prev_total_angle + delta
 
     return total_angle
+
+
+def fit_circle_xy(x: NDArray, y: NDArray):
+    """
+    Least-squares circle fit (Kåsa-style).
+    points_xy: (N,2) array with columns [x,y]
+    returns: (cx, cy, R)
+    """
+    # Solve: x^2 + y^2 + A x + B y + C = 0
+    A = np.c_[x, y, np.ones_like(x)]
+    b = -(x**2 + y**2)
+    sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+    a, b_, c = sol
+
+    cx = -a / 2.0
+    cy = -b_ / 2.0
+    R = np.sqrt(max(0.0, cx**2 + cy**2 - c))
+    return float(cx), float(cy), float(R)
+
+
+def clamp(v, lo, hi):
+    return float(np.clip(v, lo, hi))
+
+
+def wrap_deg(a):
+    # wrap to [-180, 180)
+    return float(((a + 180.0) % 360.0) - 180.0)
