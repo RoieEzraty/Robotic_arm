@@ -141,9 +141,10 @@ class SupervisorClass:
 
         sgn_x = np.sign(prev_pos_update[0]) 
         sgn_y = np.sign(prev_pos_update[1]) 
+        sgn_theta = -1  # Meca robot measures angles CW when head is inverted
         delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
         delta_y_update = - self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        delta_theta_update = - self.alpha * self.loss_norm[1] * m.norm_angle
+        delta_theta_update = sgn_theta * (- self.alpha * self.loss_norm[1] * m.norm_angle)
 
         self.pos_update_in_t[t, :] = prev_pos_update + np.array([delta_x_update, delta_y_update,
                                                                  delta_theta_update])

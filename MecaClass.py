@@ -66,8 +66,7 @@ class MecaClass:
         self.robot.ActivateRobot()
         self.robot.WaitActivated()
         logger.info("Robot activated")
-
-        # home
+  
         self.home()
 
         # apply hyperparams from config
@@ -80,8 +79,8 @@ class MecaClass:
         
         # log (and display) current position
         logger.info(f'Current arm position: {tuple(self.robot.GetPose())}')
-
-        pts = file_helpers.load_perimeter_xy("arm limits in x y.xlsx", x_col="x", y_col="y")
+        limits_path = self.cfg.get("limits", "path")
+        pts = file_helpers.load_perimeter_xy(limits_path, x_col="x", y_col="y")
         # allowed radius of motion, and offset origin
         self.cx, self.cy, self.R = robot_helpers.fit_circle_xy(pts)
         print("Circle:", self.cx, self.cy, self.R)
