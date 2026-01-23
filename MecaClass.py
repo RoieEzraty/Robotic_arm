@@ -44,6 +44,8 @@ class MecaClass:
         self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
         self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))
 
+        self.theta_sim_to_robot = ast.literal_eval(self.cfg.get("position", "theta_sim_to_robot"))
+
     def connect(self):
         # try to connect
         try:
@@ -141,9 +143,13 @@ class MecaClass:
         if np.size(points) == 3:
             point_sanit = self.sanitize_target(points)
             target = (point_sanit[0], point_sanit[1], self.pos_home[2], self.pos_home[3],
-                      self.pos_home[4], point_sanit[2])
+                      self.pos_home[4], self.sim_to_robot_theta(point_sanit[2]))
         elif np.size(points) == 6:
-            target = copy.copy(points)
+            target = np.array(points, dtype=float).copy()
+            target[-1] = self.sim_to_robot_theta(target[-1])
+            target = tuple(target)
+            # theta_z = self.sim_to_robot_theta(points[-1])
+            # target = copy.copy(np.array([points[:-1], theta_z]))
         else:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
@@ -163,17 +169,24 @@ class MecaClass:
         try:
             self.robot.MoveLin(*target)
             self.robot.WaitIdle()
+            logger.info('Robot finished moving')
         except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
                 Exception):
             # Robot likely entered error on invalid move
             self._recover_robot()
-        self.robot.MoveLin(*target)
-        self.robot.WaitIdle()
-        logger.info('Robot finished moving')
+            self.robot.MoveLin(*target)
+            self.robot.WaitIdle()
 
     def _get_current_pos(self) -> None:
         current_pos_6 = self.robot.GetPose()
-        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], current_pos_6[-1]])
+        theta_z = self.robot_to_sim_theta(current_pos_6[-1])
+        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], theta_z])
+
+    def sim_to_robot_theta(self, theta_sim_deg: float) -> float:
+        return self.theta_sim_to_robot * float(theta_sim_deg)  # invert CCW->CW
+
+    def robot_to_sim_theta(self, theta_robot_deg: float) -> float:
+        return self.theta_sim_to_robot * float(theta_robot_deg)  # invert CW->CCW
 
     def sanitize_target(self, points3):
         # x, y, z, rx, ry, rz = map(float, target6)

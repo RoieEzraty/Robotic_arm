@@ -107,8 +107,9 @@ class SupervisorClass:
                      plot: bool = False) -> NDArray[np.float_]:
         force_in_t = Snsr.force_data
         measure_t = Snsr.t
-        theta_z_deg = m.robot.GetPose()[-1]
-        theta = np.deg2rad(theta_z_deg - 90.0)
+        m._get_current_pos()
+        theta = np.deg2rad(m.current_pos[-1] - Snsr.theta_sensor)
+        # print('theta for force is = ', np.rad2deg(theta))
 
         Fx_global_in_t = force_in_t[:, 0]*np.cos(theta) + force_in_t[:, 1]*np.sin(theta)
         Fy_global_in_t = -force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta)
@@ -141,10 +142,9 @@ class SupervisorClass:
 
         sgn_x = np.sign(prev_pos_update[0]) 
         sgn_y = np.sign(prev_pos_update[1]) 
-        sgn_theta = -1  # Meca robot measures angles CW when head is inverted
         delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
         delta_y_update = - self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        delta_theta_update = sgn_theta * (- self.alpha * self.loss_norm[1] * m.norm_angle)
+        delta_theta_update = - self.alpha * self.loss_norm[1] * m.norm_angle
 
         self.pos_update_in_t[t, :] = prev_pos_update + np.array([delta_x_update, delta_y_update,
                                                                  delta_theta_update])
