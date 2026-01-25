@@ -11,8 +11,13 @@ import mecademicpy.robot_initializer as initializer
 import mecademicpy.tools as tools
 
 from numpy.typing import NDArray
+from typing import TYPE_CHECKING, Callable, Union, Optional
 
 import robot_helpers, file_helpers, helpers
+
+if TYPE_CHECKING:
+    from Logger import Logger
+    from SupervisorClass import SupervisorClass
 
 # Use tool to setup default console and file logger
 tools.SetDefaultLogger(logging.INFO, f'{pathlib.Path(__file__).stem}.log')
@@ -22,7 +27,7 @@ logger.propagate = True
 
 
 class MecaClass:
-    def __init__(self, config_path: str = "robot_config.ini"):
+    def __init__(self, Sprvsr: "SupervisorClass", config_path: str = "robot_config.ini"):
         # config
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self.cfg.read(pathlib.Path(config_path))
@@ -40,6 +45,8 @@ class MecaClass:
         self.pos_sleep = ast.literal_eval(self.cfg.get("position", "pos_sleep"))
         self.joints_sleep = ast.literal_eval(self.cfg.get("position", "joints_sleep"))
         self.pos_origin = ast.literal_eval(self.cfg.get("position", "pos_origin"))
+
+        self.hinge_L = Sprvsr.L
 
         self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
         self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))
@@ -84,8 +91,8 @@ class MecaClass:
         limits_path = self.cfg.get("limits", "path")
         pts = file_helpers.load_perimeter_xy(limits_path, x_col="x", y_col="y")
         # allowed radius of motion, and offset origin
-        self.cx, self.cy, self.R = robot_helpers.fit_circle_xy(pts)
-        print("Circle:", self.cx, self.cy, self.R)
+        self.cx, self.cy, self.R = helpers.fit_circle_xy(pts)
+        print(f"Circle: radius = {self.R:.2f}, offset = [{self.cx:.2f}, {self.cy:.2f}]")
 
     def home(self):
         logger.info("Homing")
@@ -139,9 +146,9 @@ class MecaClass:
         else:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
-    def move_pos(self, points: NDArray) -> None:
+    def move_pos(self, points: NDArray, Sprvsr: "SupervisorClass") -> None:
         if np.size(points) == 3:
-            point_sanit = self.sanitize_target(points)
+            point_sanit = self.sanitize_target(points, Sprvsr)
             target = (point_sanit[0], point_sanit[1], self.pos_home[2], self.pos_home[3],
                       self.pos_home[4], self.sim_to_robot_theta(point_sanit[2]))
         elif np.size(points) == 6:
@@ -188,25 +195,10 @@ class MecaClass:
     def robot_to_sim_theta(self, theta_robot_deg: float) -> float:
         return self.theta_sim_to_robot * float(theta_robot_deg)  # invert CW->CCW
 
-    def sanitize_target(self, points3):
-        # x, y, z, rx, ry, rz = map(float, target6)
-
-        # # TODO: set these to YOUR safe numbers
-        # XMIN, XMAX = 40.0, 220.0
-        # YMIN, YMAX = -120.0, 120.0
-        # ZMIN, ZMAX = 10.0, 220.0
-
-        # x = helpers.clamp(x, XMIN, XMAX)
-        # y = helpers.clamp(y, YMIN, YMAX)
-        # z = helpers.clamp(z, ZMIN, ZMAX)
-
-        # # keep angles in a reasonable wrapped range
-        # rx = helpers.wrap_deg(rx)
-        # ry = helpers.wrap_deg(ry)
-        # rz = helpers.wrap_deg(rz)
-        x, y, rz = map(float, points3)
-        x, y = self.clamp_to_circle_xy(x, y)
-        return np.array([x, y, rz])
+    def sanitize_target(self, points3, Sprvsr: "SupervisorClass"):
+        x, y, theta_z = map(float, points3)
+        x, y = self.clamp_to_circle_xy(x, y, theta_z, Sprvsr)
+        return np.array([x, y, theta_z])
 
     def correct_too_big_rot(self, target):
         # correct for too big a twist
@@ -228,11 +220,25 @@ class MecaClass:
         else:
             return None
 
-    def clamp_to_circle_xy(self, x, y, margin=0.0):
+    def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass", margin=0.0):
         """
         If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
         """
-        R_eff = max(0.0, self.R - margin)
+        # account for previous total angle to calculate current total angle
+        if hasattr(Sprvsr, "total_angle"):
+            prev = Sprvsr.total_angle
+        else:
+            prev = 0.0
+
+        # calculate current total angle
+        Sprvsr.total_angle = np.rad2deg(helpers.get_total_angle(self.pos_origin, np.array([x, y]), prev))
+        print(f'total_angle inside clamp_to_circle_xy = {Sprvsr.total_angle}')
+
+        # effective radius
+        R_eff = helpers.effective_radius(self.R, self.hinge_L, Sprvsr.total_angle, theta_z)
+        print(f'effective Radius inside clamp_to_circle_xy = {R_eff}')
+
+        # R_eff = max(0.0, self.R - margin)
         dx = x - self.cx
         dy = y - self.cy
         r = np.hypot(dx, dy)

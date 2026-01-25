@@ -56,6 +56,8 @@ class SupervisorClass:
             self.y_range = self.cfg.getint("sweep", "y_range")
             self.theta_range = self.cfg.getint("sweep", "theta_range")
 
+        self.L = self.cfg.getint("chain", "L")
+
         # initiate arrays in training time 
         self.F_in_t = np.zeros([self.T, 2])
         self.pos_update_in_t = np.zeros([self.T, 3])  # 2nd dim is [x, y, theta_z]

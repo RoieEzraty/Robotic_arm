@@ -49,6 +49,9 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     -------
     new_total_angle : float, The unwrapped angle (can exceed ±pi, ±2pi, ±3pi, ...).
     """
+    # This calculation is in radians, robot thinks in degs
+    prev_total_angle_rads = np.deg2rad(prev_total_angle)
+    
     # ------ total angle [-pi/2, pi/2] ------
     dx, dy = origin - tip_pos  # displacement vector
 
@@ -58,7 +61,7 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     total_angle = (total_angle + np.pi) % (2*np.pi) - np.pi
 
     # ------ correct for wrapping around center ------
-    prev_theta_wrapped = ((prev_total_angle + np.pi) % (2*np.pi)) - np.pi
+    prev_theta_wrapped = ((prev_total_angle_rads + np.pi) % (2*np.pi)) - np.pi
     delta = total_angle - prev_theta_wrapped
 
     # correct jumpt across -x axis - adding or subtracting 2π
@@ -68,17 +71,20 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
         delta += 2*np.pi
 
     # Update cumulative angle
-    total_angle = prev_total_angle + delta
+    total_angle = prev_total_angle_rads + delta
 
     return total_angle
 
 
-def fit_circle_xy(x: NDArray, y: NDArray):
+def fit_circle_xy(points_xy: np.ndarray):
     """
     Least-squares circle fit (Kåsa-style).
     points_xy: (N,2) array with columns [x,y]
     returns: (cx, cy, R)
     """
+    x = points_xy[:, 0].astype(float)
+    y = points_xy[:, 1].astype(float)
+
     # Solve: x^2 + y^2 + A x + B y + C = 0
     A = np.c_[x, y, np.ones_like(x)]
     b = -(x**2 + y**2)
@@ -89,6 +95,13 @@ def fit_circle_xy(x: NDArray, y: NDArray):
     cy = -b_ / 2.0
     R = np.sqrt(max(0.0, cx**2 + cy**2 - c))
     return float(cx), float(cy), float(R)
+
+
+def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:
+    # total_angle_deg should be *unwrapped* (can exceed 360)
+    print(f'L={L:.2f}, R={R:.2f}, total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}')
+    shrink = L * np.abs((total_angle - tip_angle) / 180.0)
+    return max(0.0, (R - margin) - shrink)
 
 
 def clamp(v, lo, hi):
