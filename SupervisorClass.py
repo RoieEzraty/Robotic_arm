@@ -50,6 +50,8 @@ class SupervisorClass:
             self.T = self.cfg.getint("training", "T")
             self.rand_key_dataset = self.cfg.getint("training", "rand_key_dataset")
             self.alpha = self.cfg.getfloat("training", "alpha")
+            self.init_buckle = self.cfg.get("training", "init_buckle")
+            self.desired_buckle = self.cfg.get("training", "desired_buckle")
         elif self.experiment == "sweep":
             self.T = self.cfg.getint("sweep", "T")
             self.x_range = self.cfg.getint("sweep", "x_range")
@@ -110,11 +112,14 @@ class SupervisorClass:
         force_in_t = Snsr.force_data
         measure_t = Snsr.t
         m._get_current_pos()
-        theta = np.deg2rad(m.current_pos[-1] - Snsr.theta_sensor)
-        # print('theta for force is = ', np.rad2deg(theta))
+        theta = -np.deg2rad(m.current_pos[-1] - Snsr.theta_sensor)
+        # theta = np.deg2rad(m.current_pos[-1])
+        print('theta for force is = ', np.rad2deg(theta))
 
-        Fx_global_in_t = force_in_t[:, 0]*np.cos(theta) + force_in_t[:, 1]*np.sin(theta)
-        Fy_global_in_t = -force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta)
+        Fx_global_in_t = -(force_in_t[:, 0]*np.cos(theta) + force_in_t[:, 1]*np.sin(theta))
+        Fy_global_in_t = -(-force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta))
+        # Fx_global_in_t = force_in_t[:, 0]*np.cos(theta) - force_in_t[:, 1]*np.sin(theta)
+        # Fy_global_in_t = force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta)
 
         if plot:
             plot_func.force_global_during_measurement(measure_t, Fx_global_in_t, Fy_global_in_t)
@@ -125,7 +130,7 @@ class SupervisorClass:
             self.F_in_t[t, :] = np.array([self.Fx, self.Fy])
 
     def calc_loss(self, t: int, norm_force: float) -> None:
-        self.loss = self.F_in_t[t, :] - self.desired_F_in_t[t, :]  # [N]
+        self.loss = self.desired_F_in_t[t, :] - self.F_in_t[t, :]  # [N]
         self.loss_norm = self.loss / norm_force  # dimless
         self.loss_MSE = np.mean(self.loss_norm ** 2)  # scalar
 

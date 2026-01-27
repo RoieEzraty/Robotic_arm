@@ -55,6 +55,27 @@ def apply_motion_config(robot, cfg):
         call_if_exists("SetBlending", blending)
 
 
+def wrap_to_180(deg: float) -> float:
+    """Wrap angle to (-180, 180]."""
+    return (deg + 180.0) % 360.0 - 180.0
+
+
+def shortest_delta_deg(a_from: float, a_to: float) -> float:
+    """Signed shortest delta from a_from to a_to in degrees."""
+    return wrap_to_180(a_to - a_from)
+
+
+def split_rotation(delta_deg: float, max_step: float = 160.0):
+    """Yield signed steps whose absolute value <= max_step."""
+    if max_step <= 0:
+        raise ValueError("max_step must be > 0")
+    n = int(np.ceil(abs(delta_deg) / max_step)) if abs(delta_deg) > 0 else 0
+    if n == 0:
+        return []
+    step = delta_deg / n
+    return [step] * n
+
+
 def assert_ready(robot):
     state = robot.GetStatusRobot()
     if state.error_status:

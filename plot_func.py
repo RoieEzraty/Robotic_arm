@@ -2,8 +2,10 @@ from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import pandas as pd
 
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import MaxNLocator
 from typing import Tuple, List, Dict, Any, Union, Optional
 from typing import TYPE_CHECKING
 from numpy.typing import NDArray
@@ -19,17 +21,57 @@ colors_lst, red, custom_cmap = colors.color_scheme()
 plt.rcParams['axes.prop_cycle'] = plt.cycler('color', colors_lst)
 
 
-def importants() -> None:
+def importants_from_file(file_path: str, init_t: int = 0, final_t: int = None,
+                         save: bool = False) -> None:
 
     # Set the custom color cycle globally without cycler
     colors_lst, red, custom_cmap = colors.color_scheme()
     plt.rcParams['axes.prop_cycle'] = plt.cycler('color', colors_lst)
 
-    # # Create main grid: 3 rows (loss, buckles, input) with buckle region smaller with custom ratios
-    # fig = plt.figure(figsize=(4.6, 2.2 + 1.2*n_springs))
-    # gs = gridspec.GridSpec(3, 1, height_ratios=[1.2, n_springs*0.75, 1.2], figure=fig)
+    # ------ Pandas read dataframe ------
+    df = pd.read_csv(file_path)
+
+    # ------ Extract sizes ------
+    F_measured = np.vstack([df["Fx_meas"].to_numpy(), df["Fy_meas"].to_numpy()])  # shape (2, T)
+    F_desired = np.vstack([df["Fx_des"].to_numpy(), df["Fy_des"].to_numpy()])  # shape (2, T)
+    loss_MSE = df["loss_MSE"].to_numpy()
+
+    T = F_measured.shape[1]
+    if final_t is None:
+        final_t = T
+    sl = slice(init_t, final_t)
+    # t = np.arange(T)
+    t = np.arange(T, dtype=int)
+
+    fig, axs = plt.subplots(
+        nrows=2, ncols=1, sharex=True,
+        figsize=(6, 6),
+        gridspec_kw={"height_ratios": [1, 1]}
+    )
+
+    # ===== top: forces =====
+    axs[0].plot(t[sl], F_measured[0, sl], color=colors_lst[1], label="Fx measured")
+    axs[0].plot(t[sl], F_desired[0, sl],  color=colors_lst[1], linestyle="--", label="Fx desired")
+
+    axs[0].plot(t[sl], F_measured[1, sl], color=colors_lst[2], label="Fy measured")
+    axs[0].plot(t[sl], F_desired[1, sl],  color=colors_lst[2], linestyle="--", label="Fy desired")
+
+    axs[0].set_ylabel("Force [N]")
+    axs[0].legend(loc="best")
+
+    # ===== bottom: loss from file =====
+    axs[1].plot(t[sl], loss_MSE[sl], color=colors_lst[0], label="loss x")
+
+    # axs[1].axhline(0.0, linewidth=1)
+    axs[1].set_xlabel("t")
+    axs[1].set_ylabel("Loss")
+    axs[1].legend(loc="best")
+
+    axs[-1].xaxis.set_major_locator(MaxNLocator(integer=True))
 
     plt.tight_layout()
+    if save:
+        plt.savefig("importants.png", dpi=300, bbox_inches="tight")
     plt.show()
 
 

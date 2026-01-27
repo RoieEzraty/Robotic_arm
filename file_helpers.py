@@ -148,3 +148,55 @@ def load_perimeter_xy(
         raise ValueError(f"Need at least 3 perimeter points to fit a circle. Got {len(pts)}.")
 
     return pts.to_numpy(dtype=float)
+
+
+def export_training_csv(path_csv: str, Sprvsr, T=None):
+    """
+    Save one row per training step t.
+    """
+    path_csv = Path(path_csv)
+    path_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    if T is None:
+        T = int(Sprvsr.T)
+
+    # ---- header ----
+    header = ["t", "tip_x", "tip_y", "tip_angle"]
+
+    header += ["upd_tip_x", "upd_tip_y", "upd_tip_angle"]
+
+    # loss columns (Sprvsr.loss_in_t is (T, loss_size))
+    header += ["loss_x", "loss_y", "loss_MSE"]
+
+    # measured
+    header += ["Fx_meas", "Fy_meas"]
+
+    # desired
+    header += ["Fx_des", "Fy_des"]
+
+    # ---- write ----
+    with open(path_csv, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+
+        for t in range(T):
+            row = [t, float(Sprvsr.pos_in_t[t, 0]), float(Sprvsr.pos_in_t[t, 1]),
+                   float(Sprvsr.pos_in_t[t, 2])]
+
+            row += [float(Sprvsr.pos_update_in_t[t, 0]), 
+                    float(Sprvsr.pos_update_in_t[t, 1]),
+                    float(Sprvsr.pos_update_in_t[t, 2])]
+
+            row += [float(x) for x in Sprvsr.loss_in_t[t, :]]
+
+            row += [float(Sprvsr.loss_MSE_in_t[t])]
+
+            # measured force
+            row += [float(Sprvsr.F_in_t[t, 0]),
+                    float(Sprvsr.F_in_t[t, 1])]
+
+            # desired force
+            row += [float(Sprvsr.desired_F_in_t[t, 0]),
+                    float(Sprvsr.desired_F_in_t[t, 1])]
+
+            w.writerow(row)

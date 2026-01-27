@@ -40,7 +40,7 @@ def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: 
 
 		# move arm
 		print(f"moving robot to pos={pos}")
-		m.move_pos(pos)
+		m.move_pos(pos, Sprvsr)
 
 		# record force
 		print("recording force")

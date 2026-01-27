@@ -163,26 +163,92 @@ class MecaClass:
         # correct for too big a twist
         mid = self.correct_too_big_rot(target)
         while mid is not None:
+            # self.move_lin_split(mid)
             self.move_lin(mid)
             mid = self.correct_too_big_rot(target)
+        # self.move_lin_split(target)
         self.move_lin(target)
 
         # save current position as self.current_pos after every movement
         self._get_current_pos()
 
     def move_lin(self, target):
-        logger.info('Moving the robot - linear')
+        # logger.info('Moving the robot - linear')
         robot_helpers.assert_ready(self.robot)
         try:
             self.robot.MoveLin(*target)
             self.robot.WaitIdle()
-            logger.info('Robot finished moving')
+            # logger.info('Robot finished moving')
         except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
                 Exception):
             # Robot likely entered error on invalid move
             self._recover_robot()
             self.robot.MoveLin(*target)
             self.robot.WaitIdle()
+
+    def move_lin_split(self, target):
+        """
+        target = (x, y, z, rx, ry, rz)  # in your units (mm, deg)
+        Strategy:
+          1) spatial MoveLin with *current* orientation (avoids 180° prot)
+          2) rotate-in-place using multiple MoveLin steps < 180°
+        """
+        logger.info("Moving the robot - linear (split spatial + angular)")
+        robot_helpers.assert_ready(self.robot)
+
+        # Current pose and target pose
+        cur = tuple(self.robot.GetPose())
+        tx, ty, tz, trx, try_, trz = target
+
+        # 1) Spatial move: go to xyz but keep current orientation
+        spatial_pose = (tx, ty, tz, cur[3], cur[4], cur[5])
+
+        logger.info(
+            f"MoveLin spatial: xyz=({tx:.2f},{ty:.2f},{tz:.2f}) "
+            f"ori_hold=({cur[3]:.2f},{cur[4]:.2f},{cur[5]:.2f})"
+        )
+        self.move_lin(spatial_pose)
+
+        # 2) Rotation-only move(s) at fixed xyz, fixed rx/ry, stepping rz
+        # Decide rotation delta relative to current orientation (after spatial move)
+        # Read pose again in case controller normalized it.
+        cur2 = tuple(self.robot.GetPose())
+        start_rz = cur2[5]
+
+        # Use shortest-path delta to requested rz.
+        # (If you want "continuous >360", you must feed an unwrapped rz here,
+        #  OR maintain your own desired_unwrapped and convert it into a sequence.)
+        delta = robot_helpers.shortest_delta_deg(start_rz, trz)
+
+        # If the shortest delta is small, just do final pose once
+        if abs(delta) < 1e-6:
+            final_pose = (tx, ty, tz, trx, try_, trz)
+            logger.info("No rotation needed; finishing with final orientation.")
+            self.move_lin(final_pose)
+            logger.info("Robot finished moving")
+            return
+
+        # Split into safe steps (<180) to avoid MX_ST_BLOCKED_BY_180_DEG_PROT
+        steps = robot_helpers.split_rotation(delta, max_step=160.0)
+
+        logger.info(
+            f"Rotate in place: start_rz={start_rz:.2f}, target_rz={trz:.2f}, "
+            f"delta(shortest)={delta:.2f}, steps={len(steps)}"
+        )
+
+        rz_running = start_rz
+        for i, dstep in enumerate(steps, start=1):
+            rz_running = rz_running + dstep
+            rot_pose = (tx, ty, tz, trx, try_, rz_running)
+            logger.info(f"Rotate step {i}/{len(steps)}: rz={rz_running:.2f} (d={dstep:.2f})")
+            self.move_lin(rot_pose)
+
+        # Ensure we land exactly on requested target pose
+        final_pose = (tx, ty, tz, trx, try_, trz)
+        logger.info(f"Finalize pose: rz={trz:.2f}")
+        self.move_lin(final_pose)
+
+        logger.info("Robot finished moving")
 
     def _get_current_pos(self) -> None:
         current_pos_6 = self.robot.GetPose()

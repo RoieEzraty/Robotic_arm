@@ -100,7 +100,8 @@ def fit_circle_xy(points_xy: np.ndarray):
 def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:
     # total_angle_deg should be *unwrapped* (can exceed 360)
     print(f'L={L:.2f}, R={R:.2f}, total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}')
-    shrink = L * np.abs((total_angle - tip_angle) / 180.0)
+    # shrink = L * np.abs((total_angle - tip_angle) / 180.0)
+    shrink = L * np.cos(np.abs(total_angle - tip_angle))
     return max(0.0, (R - margin) - shrink)
 
 
