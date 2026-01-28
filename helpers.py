@@ -94,7 +94,7 @@ def fit_circle_xy(points_xy: np.ndarray):
     cx = -a / 2.0
     cy = -b_ / 2.0
     R = np.sqrt(max(0.0, cx**2 + cy**2 - c))
-    return float(cx), float(cy), float(R)
+    return float(R)
 
 
 def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:

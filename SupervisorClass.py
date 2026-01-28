@@ -58,7 +58,8 @@ class SupervisorClass:
             self.y_range = self.cfg.getint("sweep", "y_range")
             self.theta_range = self.cfg.getint("sweep", "theta_range")
 
-        self.L = self.cfg.getint("chain", "L")
+        self.L = self.cfg.getfloat("chain", "L")
+        self.H = self.cfg.getint("chain", "H")
 
         # initiate arrays in training time 
         self.F_in_t = np.zeros([self.T, 2])

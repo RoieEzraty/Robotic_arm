@@ -27,7 +27,8 @@ logger.propagate = True
 
 
 class MecaClass:
-    def __init__(self, Sprvsr: "SupervisorClass", config_path: str = "robot_config.ini"):
+    def __init__(self, Sprvsr: "SupervisorClass", margin: float = 5.0,
+                 config_path: str = "robot_config.ini"):
         # config
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self.cfg.read(pathlib.Path(config_path))
@@ -46,12 +47,18 @@ class MecaClass:
         self.joints_sleep = ast.literal_eval(self.cfg.get("position", "joints_sleep"))
         self.pos_origin = ast.literal_eval(self.cfg.get("position", "pos_origin"))
 
-        self.hinge_L = Sprvsr.L
-
         self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
         self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))
 
         self.theta_sim_to_robot = ast.literal_eval(self.cfg.get("position", "theta_sim_to_robot"))
+
+        limits_path = self.cfg.get("limits", "path")
+        pts_robot = file_helpers.load_perimeter_xy(limits_path, x_col="x", y_col="y")
+        # allowed radius of motion, and offset origin
+        self.R_robot = helpers.fit_circle_xy(pts_robot)
+        print(f"Radius allowed due to robot margins, = {self.R_robot:.2f}")
+        self.R_chain = (Sprvsr.L + margin) * Sprvsr.H
+        print(f"Radius allowed due to chain length, = {self.R_chain:.2f}")
 
     def connect(self):
         # try to connect
@@ -88,11 +95,6 @@ class MecaClass:
         
         # log (and display) current position
         logger.info(f'Current arm position: {tuple(self.robot.GetPose())}')
-        limits_path = self.cfg.get("limits", "path")
-        pts = file_helpers.load_perimeter_xy(limits_path, x_col="x", y_col="y")
-        # allowed radius of motion, and offset origin
-        self.cx, self.cy, self.R = helpers.fit_circle_xy(pts)
-        print(f"Circle: radius = {self.R:.2f}, offset = [{self.cx:.2f}, {self.cy:.2f}]")
 
     def home(self):
         logger.info("Homing")
@@ -106,9 +108,6 @@ class MecaClass:
         holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
         self.tip_length = load_cell_thick + holder_len
         self.robot.SetTrf(0.0, 0.0, self.tip_length, 0.0, 0.0, 0.0)
-
-    # def move_to_floor(self):
-    #     logger.info('Moving the robot to floor')
 
     def move_to_origin(self):
         # current_pos = self.robot.GetPose()
@@ -300,23 +299,32 @@ class MecaClass:
         Sprvsr.total_angle = np.rad2deg(helpers.get_total_angle(self.pos_origin, np.array([x, y]), prev))
         print(f'total_angle inside clamp_to_circle_xy = {Sprvsr.total_angle}')
 
-        # effective radius
-        R_eff = helpers.effective_radius(self.R, self.hinge_L, Sprvsr.total_angle, theta_z)
+        # effective radius of chain
+        R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)
         print(f'effective Radius inside clamp_to_circle_xy = {R_eff}')
 
         # R_eff = max(0.0, self.R - margin)
-        dx = x - self.cx
-        dy = y - self.cy
-        r = np.hypot(dx, dy)
+        r_robot = np.hypot(x, y)
+        r_chain = np.hypot(x-self.pos_origin[0], y-self.pos_origin[1])
 
-        if r <= R_eff or r == 0.0:
-            return float(x), float(y)  # unchanged
+        x2, x3, y2, y3 = None, None, None, None
 
-        scale = R_eff / r
-        x2 = self.cx + dx * scale
-        y2 = self.cy + dy * scale
-        print(f'clamped from {x},{y} to {x2}, {y2}')
-        return float(x2), float(y2)
+        if r_chain >= R_eff:
+            scale = R_eff / r_robot
+            x2 = self.pos_origin[0] + (x-self.pos_origin[0]) * scale
+            y2 = self.pos_origin[1] + (y-self.pos_origin[1]) * scale
+            print(f'clamped from x={x},y={y} to x={x2},y={y2} due to robot limits')
+
+        elif r_robot >= self.R_robot:
+            scale = R_eff / r_robot
+            x3 = x * scale
+            y3 = y * scale
+            print(f'clamped from x={x},y={y} to x={x3},y={y3} due to chain revolusions')
+
+        x_clamp = np.nanmin(np.array([x, x2, x3], dtype=float))
+        y_clamp = np.nanmin(np.array([y, y2, y3], dtype=float))
+
+        return float(x_clamp), float(y_clamp)
 
     def disconnect(self) -> None:
         self.robot.Disconnect()
