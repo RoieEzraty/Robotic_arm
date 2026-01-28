@@ -101,7 +101,17 @@ def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:
     # total_angle_deg should be *unwrapped* (can exceed 360)
     print(f'L={L:.2f}, R={R:.2f}, total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}')
     # shrink = L * np.abs((total_angle - tip_angle) / 180.0)
-    shrink = L * np.cos(np.abs(total_angle - tip_angle))
+    # shrink = L * np.cos(np.abs(total_angle - tip_angle))
+    delta = float(np.abs(np.deg2rad(total_angle) - np.deg2rad(tip_angle)))  # radians, unwrapped
+
+    two_pi = 2.0 * np.pi
+    n_rev = int(np.floor(delta / two_pi))
+    rem = delta - n_rev * two_pi  # in [0, 2π)
+
+    shrink_full = (2.0 * L) * n_rev
+    shrink_partial = L * (1.0 - np.cos(rem / 2.0))  # in [0, 2L)
+
+    shrink = shrink_full + shrink_partial
     return max(0.0, (R - margin) - shrink)
 
 
