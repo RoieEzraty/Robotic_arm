@@ -92,6 +92,9 @@ class MecaClass:
 
         # set offset due to force sensor and gripper
         self.set_TRF_wrt_holder()
+
+        # turn configuration - wires do not coil too much
+        # self.robot.SetConfTurn(2)
         
         # log (and display) current position
         logger.info(f'Current arm position: {tuple(self.robot.GetPose())}')
@@ -130,7 +133,7 @@ class MecaClass:
         else:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
-    def move_pos(self, points: NDArray, Sprvsr: "SupervisorClass") -> None:
+    def move_pos_w_mid(self, points: NDArray, Sprvsr: "SupervisorClass", mod="lin") -> None:
         if np.size(points) == 3:
             point_sanit = self.sanitize_target(points, Sprvsr)
             target = (point_sanit[0], point_sanit[1], self.pos_home[2], self.pos_home[3],
@@ -143,34 +146,52 @@ class MecaClass:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
         # correct for too big a twist and move
+        corr = 0
+        logger.info(f'before {corr} correct too big rot')
         mid = self.correct_too_big_rot(target)  # None of not too big, array of midway points else
         while mid is not None:
+            corr +=1
             # self.move_lin_split(mid)
-            self.move_lin(mid)
+            self.move_lin_or_pose(mid, mod)
+            logger.info(f'before {corr} correct too big rot')
             mid = self.correct_too_big_rot(target)
+            if np.size(points) == 3:
+                self.current_pos = self.pts_6_to_3(target)
+            else:
+                self._get_current_pos()
 
         # move one final time
         # self.move_lin_split(target)
-        self.move_lin(target)
+        self.move_lin_or_pose(target, mod)
+        if np.size(points) == 3:
+            self.current_pos = self.pts_6_to_3(target)
+        else:
+            self._get_current_pos()
 
         # save current position as self.current_pos after every movement
-        self._get_current_pos()
+        # self._get_current_pos()
 
-    def move_lin(self, target):
+    def move_lin_or_pose(self, target, mod):
         # logger.info('Moving the robot - linear')
         robot_helpers.assert_ready(self.robot)
         try:
-            self.robot.MoveLin(*target)
+            if mod == 'lin':
+                self.robot.MoveLin(*target)
+            elif mod == 'pose':
+                self.robot.MovePose(*target)
             self.robot.WaitIdle()
             # logger.info('Robot finished moving')
         except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
                 Exception):
             # Robot likely entered error on invalid move
             self._recover_robot()
-            self.robot.MoveLin(*target)
+            if mod == 'lin':
+                self.robot.MoveLin(*target)
+            elif mod == 'pose':
+                self.robot.MovePose(*target)
             self.robot.WaitIdle()
 
-    def move_lin_split(self, target):
+    def move_lin_split(self, target, mod='lin'):
         """
         target = (x, y, z, rx, ry, rz)  # in your units (mm, deg)
         Strategy:
@@ -191,7 +212,7 @@ class MecaClass:
             f"MoveLin spatial: xyz=({tx:.2f},{ty:.2f},{tz:.2f}) "
             f"ori_hold=({cur[3]:.2f},{cur[4]:.2f},{cur[5]:.2f})"
         )
-        self.move_lin(spatial_pose)
+        self.move_lin_or_pose(spatial_pose, mod)
 
         # 2) Rotation-only move(s) at fixed xyz, fixed rx/ry, stepping rz
         # Decide rotation delta relative to current orientation (after spatial move)
@@ -208,7 +229,7 @@ class MecaClass:
         if abs(delta) < 1e-6:
             final_pose = (tx, ty, tz, trx, try_, trz)
             logger.info("No rotation needed; finishing with final orientation.")
-            self.move_lin(final_pose)
+            self.move_lin_or_pose(final_pose, mod)
             logger.info("Robot finished moving")
             return
 
@@ -225,12 +246,12 @@ class MecaClass:
             rz_running = rz_running + dstep
             rot_pose = (tx, ty, tz, trx, try_, rz_running)
             logger.info(f"Rotate step {i}/{len(steps)}: rz={rz_running:.2f} (d={dstep:.2f})")
-            self.move_lin(rot_pose)
+            self.move_lin_or_pose(rot_pose, mod)
 
         # Ensure we land exactly on requested target pose
         final_pose = (tx, ty, tz, trx, try_, trz)
         logger.info(f"Finalize pose: rz={trz:.2f}")
-        self.move_lin(final_pose)
+        self.move_lin_or_pose(final_pose, mod)
 
         logger.info("Robot finished moving")
 
@@ -238,6 +259,13 @@ class MecaClass:
         current_pos_6 = self.robot.GetPose()  # 6 DOFs from robot
         theta_z = self.robot_to_sim_theta(current_pos_6[-1])  # robot and simulation angles don't agree
         self.current_pos = np.array([current_pos_6[0], current_pos_6[1], theta_z])  # 3 DOFs
+
+    def pts_3_to_6(self, points) -> tuple:
+        return (points[0], points[1], self.pos_home[2], self.pos_home[3], self.pos_home[4], 
+                points[2])
+        
+    def pts_6_to_3(self, points) -> NDArray:
+        return np.array([points[0], points[1], points[-1]])
 
     def sim_to_robot_theta(self, theta_sim_deg: float) -> float:
         return self.theta_sim_to_robot * float(theta_sim_deg)  # invert CCW->CW
@@ -252,9 +280,13 @@ class MecaClass:
 
     def correct_too_big_rot(self, target):
         # correct for too big a twist
-        starting_pos = tuple(self.robot.GetPose())
-        delta = np.asarray(starting_pos) - np.asarray(target)
-        rot_idx = np.array([3, 4, 5], dtype=int)  # Rotational indices in Mecademic pose: rx, ry, rz
+        if hasattr(self, "current_pos"):
+            starting_pos = self.pts_3_to_6(self.current_pos)
+        else:    
+            starting_pos = tuple(self.robot.GetPose())
+        delta = np.asarray(target) - np.asarray(starting_pos)
+        logger.info(f'delta in too big rot = {delta}')
+        rot_idx = np.array([5], dtype=int)  # Rotational indices in Mecademic pose: rx, ry, rz
         over = np.abs(delta[rot_idx]) > 180.0
         if np.any(over):
             # Intermediate pose:
@@ -264,10 +296,11 @@ class MecaClass:
             for i, is_over in zip(rot_idx, over):
                 if is_over:
                     mid[i] = starting_pos[i] + 0.5 * delta[i]
-                logger.info('Large rotation detected. Splitting MoveLin into two steps. '
-                            f'start={starting_pos} mid={mid} target={target}')
+                    logger.info('Large rotation detected. Splitting MoveLin into two steps. '
+                                f'start={starting_pos} mid={mid} target={target}')
             return mid
         else:
+            logger.info('no correction for too big rot')
             return None
 
     def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass", margin=0.0):
@@ -282,7 +315,6 @@ class MecaClass:
 
         # calculate current total angle
         Sprvsr.total_angle = helpers.get_total_angle(self.pos_origin, np.array([x, y]), prev)  # [deg]
-        print(f'total_angle inside clamp_to_circle_xy = {Sprvsr.total_angle}')
 
         # effective radius of chain
         R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)

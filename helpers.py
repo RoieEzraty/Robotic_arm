@@ -99,18 +99,16 @@ def fit_circle_xy(points_xy: np.ndarray):
 
 def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:
     # total_angle should be *unwrapped* (can exceed 360)
-    print(f'L={L:.2f}, R={R:.2f}, total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}')
+    print(f'total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}')
     delta = float(np.abs(np.deg2rad(total_angle) - np.deg2rad(tip_angle)))  # radians, unwrapped
-    print('delta for effective radius=', delta)
     two_pi = 2.0 * np.pi
     n_rev = int(np.floor(delta / two_pi))
     rem = delta - n_rev * two_pi  # in [0, 2π)
-    print('remainder of angle after accounting for revolutions', rem)
 
     shrink_full = (2.0 * L) * n_rev
     print('shrink due to revolutions', shrink_full)
     shrink_partial = L * (1.0 - np.cos(rem / 2.0))  # in [0, 2L)
-    print('shrink remainder', shrink_partial)
+    print('shrink remainder in [mm]', shrink_partial)
 
     shrink = shrink_full + shrink_partial
     return max(0.0, (R - margin) - shrink)

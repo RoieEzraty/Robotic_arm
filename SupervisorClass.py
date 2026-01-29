@@ -136,12 +136,10 @@ class SupervisorClass:
 
     def calc_tip_update(self, m: MecaClass, t: int, correct_for_total_angle: bool = True) -> None:
         tip_pos = self.pos_update_in_t[t, :2]
-        print('current update tip_pos = ', tip_pos)
         if t == 0:
             prev_pos_update = m.current_pos
         else:
-            prev_pos_update = self.pos_update_in_t[t-1, :]
-        print('previous tip update value = ', prev_pos_update)        
+            prev_pos_update = self.pos_update_in_t[t-1, :]        
 
         sgn_x = np.sign(prev_pos_update[0]) 
         sgn_y = np.sign(prev_pos_update[1]) 
@@ -158,11 +156,9 @@ class SupervisorClass:
                 prev_total_angle = 0.0  # [deg]
             else:
                 prev_total_angle = self.total_angle_update_in_t[t-1]  # [deg]
-            print('prev_total_angle', prev_total_angle)
             self.total_angle = helpers.get_total_angle(m.pos_origin, tip_pos, prev_total_angle)
             delta_total_angle = self.total_angle - prev_total_angle
             print('current total_angle', self.total_angle)
-            print('delta_total_angle', delta_total_angle)
             # add delta total angle
             self.pos_update_in_t[t, 2] += delta_total_angle
             # save as variable in t
