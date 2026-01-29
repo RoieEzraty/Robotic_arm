@@ -108,6 +108,7 @@ def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:
     shrink_full = (2.0 * L) * n_rev
     print('shrink due to revolutions', shrink_full)
     shrink_partial = L * (1.0 - np.cos(rem / 2.0))  # in [0, 2L)
+    # shrink_partial = L * (1.0 - np.cos(rem))  # in [0, 2L)
     print('shrink remainder in [mm]', shrink_partial)
 
     shrink = shrink_full + shrink_partial

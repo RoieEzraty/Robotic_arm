@@ -114,7 +114,6 @@ class SupervisorClass:
         measure_t = Snsr.t
         m._get_current_pos()
         theta = -(m.current_pos[-1] - Snsr.theta_sensor)  # [deg]
-        print('theta for force is = ', theta)
         Fx_global_in_t, Fy_global_in_t = helpers.rotate_force_frame(force_in_t, theta)
 
         if plot:

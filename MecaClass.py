@@ -303,7 +303,7 @@ class MecaClass:
             logger.info('no correction for too big rot')
             return None
 
-    def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass", margin=0.0):
+    def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass", margin=2.0):
         """
         If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
         """
@@ -326,17 +326,17 @@ class MecaClass:
 
         x2, x3, y2, y3 = None, None, None, None
 
-        if r_chain >= R_eff:
-            scale = R_eff / r_robot
+        if r_chain >= (R_eff - margin):
+            scale = (R_eff - margin) / r_chain
             x2 = self.pos_origin[0] + (x-self.pos_origin[0]) * scale
             y2 = self.pos_origin[1] + (y-self.pos_origin[1]) * scale
-            print(f'clamped from x={x},y={y} to x={x2},y={y2} due to robot limits')
+            print(f'clamped from x={x},y={y} to x={x2},y={y2} due to chain revolusions')
 
-        elif r_robot >= self.R_robot:
-            scale = R_eff / r_robot
+        if r_robot >= (self.R_robot - margin):
+            scale = (self.R_robot - margin) / r_robot
             x3 = x * scale
             y3 = y * scale
-            print(f'clamped from x={x},y={y} to x={x3},y={y3} due to chain revolusions')
+            print(f'clamped from x={x},y={y} to x={x3},y={y3} due to robot limits')
 
         x_clamp = np.nanmin(np.array([x, x2, x3], dtype=float))
         y_clamp = np.nanmin(np.array([y, y2, y3], dtype=float))
