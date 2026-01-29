@@ -31,6 +31,7 @@ class ForsentekClass:
         self.min_val = self.cfg.getfloat("amp", "min_val", fallback=None)
         self.max_val = self.cfg.getfloat("amp", "max_val", fallback=None)
 
+        # angle between x of force sensor and x of robot
         self.theta_sensor = self.cfg.getfloat("rotation", "angle", fallback=None)
 
         # ------ create task ------

@@ -48,9 +48,9 @@ class MecaClass:
         self.pos_origin = ast.literal_eval(self.cfg.get("position", "pos_origin"))
 
         self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
-        self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))
+        self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))  # [deg]
 
-        self.theta_sim_to_robot = ast.literal_eval(self.cfg.get("position", "theta_sim_to_robot"))
+        self.theta_sim_to_robot = ast.literal_eval(self.cfg.get("position", "theta_sim_to_robot"))  # int
 
         limits_path = self.cfg.get("limits", "path")
         pts_robot = file_helpers.load_perimeter_xy(limits_path, x_col="x", y_col="y")
@@ -110,18 +110,8 @@ class MecaClass:
         self.robot.SetTrf(0.0, 0.0, self.tip_length, 0.0, 0.0, 0.0)
 
     def move_to_origin(self):
-        # current_pos = self.robot.GetPose()
-        # tolerance = 2  # below this no motion is accounted in z axis
-        # home_joints = (10, 56.5, 0, 0, 30, 180)
         logger.info('Moving the robot to origin')
-        # self.move_joints(self.joints_home)
         self.robot.WaitIdle()
-        # if current_pos[2] > self.z_origin + tolerance:
-        #     self.robot.MoveLin(self.x_origin/2, self.y_origin, self.z_sleep,
-        #                        self.theta_x_origin, self.theta_y_origin, self.theta_z_origin)
-        #     self.robot.WaitIdle()
-        # else:
-        #     pass
         self.robot.MoveLin(*self.pos_home)
         self.robot.WaitIdle()
 
@@ -130,11 +120,6 @@ class MecaClass:
         self.move_joints(self.joints_sleep)
 
     def move_joints(self, joints) -> None:
-        # if np.size(joints) == 3:
-        #     current_joints = self.robot.GetJoints()
-        #     target = (joints[0], joints[1], current_joints[2], current_joints[3],
-        #               current_joints[4], joints[2])
-        #     logger.info('poisition given is not x, y, theta_z or 6 DOFs')
         if np.size(joints) == 6:
             target = copy.copy(joints)
             logger.info('Moving the robot - joints')
@@ -154,17 +139,17 @@ class MecaClass:
             target = np.array(points, dtype=float).copy()
             target[-1] = self.sim_to_robot_theta(target[-1])
             target = tuple(target)
-            # theta_z = self.sim_to_robot_theta(points[-1])
-            # target = copy.copy(np.array([points[:-1], theta_z]))
         else:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
-        # correct for too big a twist
-        mid = self.correct_too_big_rot(target)
+        # correct for too big a twist and move
+        mid = self.correct_too_big_rot(target)  # None of not too big, array of midway points else
         while mid is not None:
             # self.move_lin_split(mid)
             self.move_lin(mid)
             mid = self.correct_too_big_rot(target)
+
+        # move one final time
         # self.move_lin_split(target)
         self.move_lin(target)
 
@@ -250,9 +235,9 @@ class MecaClass:
         logger.info("Robot finished moving")
 
     def _get_current_pos(self) -> None:
-        current_pos_6 = self.robot.GetPose()
-        theta_z = self.robot_to_sim_theta(current_pos_6[-1])
-        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], theta_z])
+        current_pos_6 = self.robot.GetPose()  # 6 DOFs from robot
+        theta_z = self.robot_to_sim_theta(current_pos_6[-1])  # robot and simulation angles don't agree
+        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], theta_z])  # 3 DOFs
 
     def sim_to_robot_theta(self, theta_sim_deg: float) -> float:
         return self.theta_sim_to_robot * float(theta_sim_deg)  # invert CCW->CW
@@ -289,14 +274,14 @@ class MecaClass:
         """
         If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
         """
-        # account for previous total angle to calculate current total angle
+        # account for previous total angle to calculate current total angle, in [deg]
         if hasattr(Sprvsr, "total_angle"):
             prev = Sprvsr.total_angle
         else:
             prev = 0.0
 
         # calculate current total angle
-        Sprvsr.total_angle = np.rad2deg(helpers.get_total_angle(self.pos_origin, np.array([x, y]), prev))
+        Sprvsr.total_angle = helpers.get_total_angle(self.pos_origin, np.array([x, y]), prev)  # [deg]
         print(f'total_angle inside clamp_to_circle_xy = {Sprvsr.total_angle}')
 
         # effective radius of chain

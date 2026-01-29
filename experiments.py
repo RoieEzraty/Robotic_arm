@@ -25,12 +25,10 @@ def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: 
 	if N == 1:
 		x_vec = np.array([x_range])
 		y_vec = np.array([y_range])
-		theta_vec = np.array([theta_range])
+		theta_vec = np.array([theta_range])  # [deg]
 	else:
-		# x_vec = np.linspace(-x_range, x_range, N)
 		x_vec = np.ones(N) * x_range
 		y_vec = np.linspace(-y_range, y_range, N)
-		# theta_vec = np.linspace(-theta_range, theta_range, N)
 		theta_vec = np.ones(N) * theta_range
 	x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)
 	F_vec = np.zeros([2, N])

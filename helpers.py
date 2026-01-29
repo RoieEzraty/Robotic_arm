@@ -35,22 +35,22 @@ def fit_force_vs_voltage(voltages_array: np.ndarray, forces_array: np.ndarray,
 
 def get_total_angle(origin, tip_pos, prev_total_angle):
     """
-    angle between tip and last fixed node, CCW
+    angle between tip and last fixed node, CCW, [deg]
     pos_arr: array of shape (H, 2)
-    Returns: angle (radians) in [-pi, pi], measured from -x axis
+    Returns: angle [deg] in [-180, 180], measured from -x axis
     
     Parameters
     ----------
     tip_pos          - (2,) array, Current tip position.
-    prev_total_angle - float, The accumulated unwrapped angle up to the previous timestep.
+    prev_total_angle - float, deg, The accumulated unwrapped angle up to the previous timestep.
     L                - float, Edge length (used to define reference point at (L,0)).
 
     Returns
     -------
-    new_total_angle : float, The unwrapped angle (can exceed ±pi, ±2pi, ±3pi, ...).
+    new_total_angle : float, deg, The unwrapped angle  (can exceed ±180, ±360, ...).
     """
     # This calculation is in radians, robot thinks in degs
-    prev_total_angle_rads = np.deg2rad(prev_total_angle)
+    prev_total_angle_rads = np.deg2rad(prev_total_angle)  # [rad]
     
     # ------ total angle [-pi/2, pi/2] ------
     dx, dy = origin - tip_pos  # displacement vector
@@ -61,8 +61,8 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     total_angle = (total_angle + np.pi) % (2*np.pi) - np.pi
 
     # ------ correct for wrapping around center ------
-    prev_theta_wrapped = ((prev_total_angle_rads + np.pi) % (2*np.pi)) - np.pi
-    delta = total_angle - prev_theta_wrapped
+    prev_theta_wrapped = ((prev_total_angle_rads + np.pi) % (2*np.pi)) - np.pi  # [rad]
+    delta = total_angle - prev_theta_wrapped  # [rad]
 
     # correct jumpt across -x axis - adding or subtracting 2π
     if delta > np.pi:
@@ -73,7 +73,7 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     # Update cumulative angle
     total_angle = prev_total_angle_rads + delta
 
-    return total_angle
+    return np.rad2deg(total_angle)  # [deg]
 
 
 def fit_circle_xy(points_xy: np.ndarray):
@@ -98,21 +98,35 @@ def fit_circle_xy(points_xy: np.ndarray):
 
 
 def effective_radius(R, L, total_angle, tip_angle, margin=0.0) -> float:
-    # total_angle_deg should be *unwrapped* (can exceed 360)
+    # total_angle should be *unwrapped* (can exceed 360)
     print(f'L={L:.2f}, R={R:.2f}, total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}')
-    # shrink = L * np.abs((total_angle - tip_angle) / 180.0)
-    # shrink = L * np.cos(np.abs(total_angle - tip_angle))
     delta = float(np.abs(np.deg2rad(total_angle) - np.deg2rad(tip_angle)))  # radians, unwrapped
-
+    print('delta for effective radius=', delta)
     two_pi = 2.0 * np.pi
     n_rev = int(np.floor(delta / two_pi))
     rem = delta - n_rev * two_pi  # in [0, 2π)
+    print('remainder of angle after accounting for revolutions', rem)
 
     shrink_full = (2.0 * L) * n_rev
+    print('shrink due to revolutions', shrink_full)
     shrink_partial = L * (1.0 - np.cos(rem / 2.0))  # in [0, 2L)
+    print('shrink remainder', shrink_partial)
 
     shrink = shrink_full + shrink_partial
     return max(0.0, (R - margin) - shrink)
+
+
+def rotate_force_frame(force_in_t, tip_angle):
+    """
+    force_in_t: NDArray (T_meas, 2), of 2d forces during sensor measurement
+    tip_angle : float, deg, tip_angle of robot relative to origin
+    """
+    tip_angle_rad = np.deg2rad(tip_angle)
+    Fx_global_in_t = -(force_in_t[:, 0]*np.cos(tip_angle_rad) + force_in_t[:, 1]*np.sin(tip_angle_rad))
+    Fy_global_in_t = -(-force_in_t[:, 0]*np.sin(tip_angle_rad) + force_in_t[:, 1]*np.cos(tip_angle_rad))
+    # Fx_global_in_t = force_in_t[:, 0]*np.cos(tip_angle_rad) - force_in_t[:, 1]*np.sin(tip_angle_rad)
+    # Fy_global_in_t = force_in_t[:, 0]*np.sin(tip_angle_rad) + force_in_t[:, 1]*np.cos(tip_angle_rad)
+    return Fx_global_in_t, Fy_global_in_t
 
 
 def clamp(v, lo, hi):

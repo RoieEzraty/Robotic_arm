@@ -56,7 +56,7 @@ class SupervisorClass:
             self.T = self.cfg.getint("sweep", "T")
             self.x_range = self.cfg.getint("sweep", "x_range")
             self.y_range = self.cfg.getint("sweep", "y_range")
-            self.theta_range = self.cfg.getint("sweep", "theta_range")
+            self.theta_range = self.cfg.getint("sweep", "theta_range")  # [deg]
 
         self.L = self.cfg.getfloat("chain", "L")
         self.H = self.cfg.getint("chain", "H")
@@ -64,7 +64,7 @@ class SupervisorClass:
         # initiate arrays in training time 
         self.F_in_t = np.zeros([self.T, 2])
         self.pos_update_in_t = np.zeros([self.T, 3])  # 2nd dim is [x, y, theta_z]
-        self.total_angle_update_in_t = np.zeros([self.T])
+        self.total_angle_update_in_t = np.zeros([self.T])  # [deg]
         self.loss_in_t = np.zeros([self.T, 2])
         self.loss_norm_in_t = np.zeros([self.T, 2])
         self.loss_MSE_in_t = np.zeros([self.T,])  
@@ -113,14 +113,9 @@ class SupervisorClass:
         force_in_t = Snsr.force_data
         measure_t = Snsr.t
         m._get_current_pos()
-        theta = -np.deg2rad(m.current_pos[-1] - Snsr.theta_sensor)
-        # theta = np.deg2rad(m.current_pos[-1])
-        print('theta for force is = ', np.rad2deg(theta))
-
-        Fx_global_in_t = -(force_in_t[:, 0]*np.cos(theta) + force_in_t[:, 1]*np.sin(theta))
-        Fy_global_in_t = -(-force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta))
-        # Fx_global_in_t = force_in_t[:, 0]*np.cos(theta) - force_in_t[:, 1]*np.sin(theta)
-        # Fy_global_in_t = force_in_t[:, 0]*np.sin(theta) + force_in_t[:, 1]*np.cos(theta)
+        theta = -(m.current_pos[-1] - Snsr.theta_sensor)  # [deg]
+        print('theta for force is = ', theta)
+        Fx_global_in_t, Fy_global_in_t = helpers.rotate_force_frame(force_in_t, theta)
 
         if plot:
             plot_func.force_global_during_measurement(measure_t, Fx_global_in_t, Fy_global_in_t)
@@ -152,7 +147,7 @@ class SupervisorClass:
         sgn_y = np.sign(prev_pos_update[1]) 
         delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
         delta_y_update = - self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        delta_theta_update = - self.alpha * self.loss_norm[1] * m.norm_angle
+        delta_theta_update = - self.alpha * self.loss_norm[1] * m.norm_angle  # [deg]
 
         self.pos_update_in_t[t, :] = prev_pos_update + np.array([delta_x_update, delta_y_update,
                                                                  delta_theta_update])
@@ -160,9 +155,9 @@ class SupervisorClass:
 
         if correct_for_total_angle:
             if t == 1:
-                prev_total_angle = 0.0
+                prev_total_angle = 0.0  # [deg]
             else:
-                prev_total_angle = self.total_angle_update_in_t[t-1]
+                prev_total_angle = self.total_angle_update_in_t[t-1]  # [deg]
             print('prev_total_angle', prev_total_angle)
             self.total_angle = helpers.get_total_angle(m.pos_origin, tip_pos, prev_total_angle)
             delta_total_angle = self.total_angle - prev_total_angle

@@ -161,9 +161,9 @@ def export_training_csv(path_csv: str, Sprvsr, T=None):
         T = int(Sprvsr.T)
 
     # ---- header ----
-    header = ["t", "tip_x", "tip_y", "tip_angle"]
+    header = ["t", "tip_x", "tip_y", "tip_angle [deg]"]
 
-    header += ["upd_tip_x", "upd_tip_y", "upd_tip_angle"]
+    header += ["upd_tip_x", "upd_tip_y", "upd_tip_angle [deg]"]
 
     # loss columns (Sprvsr.loss_in_t is (T, loss_size))
     header += ["loss_x", "loss_y", "loss_MSE"]
