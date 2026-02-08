@@ -133,7 +133,8 @@ class MecaClass:
         else:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
-    def move_pos_w_mid(self, points: NDArray, Sprvsr: "SupervisorClass", mod="lin") -> None:
+    def move_pos_w_mid(self, points: NDArray, Sprvsr: Optional["SupervisorClass"] = None,
+                       mod="lin") -> None:
         if np.size(points) == 3:
             point_sanit = self.sanitize_target(points, Sprvsr)
             target = (point_sanit[0], point_sanit[1], self.pos_home[2], self.pos_home[3],
