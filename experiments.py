@@ -50,6 +50,58 @@ def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: 
 	return x_y_theta_vec, F_vec
 
 
+def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_range: float, N: int,
+	              connect_hinge: bool = True):
+	"""
+	connect_hinge - bool, True: start from above, let user connect hinge and only then lower tip
+	"""
+
+	m.set_TRF_wrt_holder(mod='stress_strain')
+
+	if connect_hinge:
+		# ------ move to position above hinge ------
+		m.robot.MoveLin(130, -13, 43, -180, 0, 0)
+		m.robot.WaitIdle()
+		
+		# ------ user inputs ------
+		# receive input from user they are ready. User holds hinge straight below robot tip
+		input("place hinge below tip and press Enter to connect")
+		# lower arm and connect
+		m.robot.MoveLin(130, -13, 30, -180, 0, 0)
+		m.robot.WaitIdle()
+
+	# ------ Experiment prelims ------
+	init_pos_6 = m.robot.GetPose()
+	thetas_vec_up = np.linspace(-theta_range, theta_range, int(N/2))
+	thetas_vec_down = np.linspace(theta_range, -theta_range, int(N/2))
+	if N % 2 == 1:
+	   thetas_vec_down = np.append(thetas_vec_down, -theta_range) 
+	thetas_vec = np.append(thetas_vec_up, thetas_vec_down)
+	Fx_vec = np.zeros((N,))
+	Fy_vec = np.zeros((N,))
+
+	# ------ Experiment ------
+	for i, theta in enumerate(thetas_vec):
+		# move
+	    pos_6 = (init_pos_6[0], init_pos_6[1], init_pos_6[2], init_pos_6[3], init_pos_6[4], theta)
+	    print(f'pos_6{pos_6}')
+	    # m.robot.MoveLine(*pos_6)
+	    m.move_pos_w_mid(*pos_6)
+
+	    # measure
+	    Snsr.measure()
+	    Fx, Fy = np.mean(Snsr.force_data[:, 0]), np.mean(Snsr.force_data[:, 1])
+
+	    # save
+	    Fx_vec[i], Fy_vec[i] = Fx, Fy
+
+	# ------- de-stress at end ------
+	end_pos = (init_pos_6[0], init_pos_6[1], init_pos_6[2], init_pos_6[3], init_pos_6[4], 0.0)
+	m.robot.MoveLin(*end_pos)
+
+	return thetas_vec, Fx_vec, Fy_vec
+
+
 def calibrate_forces_all_axes(m: MecaClass, Snsr: ForsentekClass, weights_gr: list) -> None:
 	voltages_array = np.zeros([np.size(weights_gr)+1, 3])
 	forces_array = np.zeros([np.size(weights_gr)+1, 3])
@@ -102,16 +154,16 @@ def calibrate_forces_1axis(Snsr: ForsentekClass, weights_gr: list, axis: str):
 
 	# --- gravity load ---
 	input("Place sensor so only g acts and press Enter...")
-	_, data_3d = Snsr.measure(1, mode='V')
-	data = data_3d[:, dim2]
+	Snsr.measure(1, mode='V')
+	data = Snsr.voltage_data[:, dim2]
 	voltage_g = np.mean(data)  # voltage of just the gravity load
 	stds_g = np.std(data)
 	print(f"voltage_g = {voltage_g:.6f} V")
 	    
 	for i, weight in enumerate(weights_kg):
 	    input(f"place weight = {weight:.6f} and press Enter")
-	    _, data_3d = Snsr.measure(1, mode='V')
-	    data = data_3d[:, dim2]
+	    Snsr.measure(1, mode='V')
+	    data = Snsr.voltage_data[:, dim2]
 	    voltages[i] = np.mean(data)
 	    stds[i] = np.std(data)
 

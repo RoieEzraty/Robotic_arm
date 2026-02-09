@@ -106,11 +106,15 @@ class MecaClass:
         self.robot.WaitHomed()
         logger.info("Robot at home")
 
-    def set_TRF_wrt_holder(self):
+    def set_TRF_wrt_holder(self, mod: Optional[str] = None):
         load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
         holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
         self.tip_length = load_cell_thick + holder_len
-        self.robot.SetTrf(0.0, 0.0, self.tip_length, 0.0, 0.0, 0.0)
+        if mod == 'stress_strain':
+            self.x_offset = self.cfg.getfloat("position", "offset_stress_strain", fallback=None)
+        else:
+            self.x_offset = 0.0
+        self.robot.SetTrf(-self.x_offset, 0.0, self.tip_length, 0.0, 0.0, 0.0)
 
     def move_to_origin(self):
         logger.info('Moving the robot to origin')
@@ -148,13 +152,13 @@ class MecaClass:
 
         # correct for too big a twist and move
         corr = 0
-        logger.info(f'before {corr} correct too big rot')
+        logger.info(f'before {corr} correction of too big rot')
         mid = self.correct_too_big_rot(target)  # None of not too big, array of midway points else
         while mid is not None:
             corr +=1
             # self.move_lin_split(mid)
             self.move_lin_or_pose(mid, mod)
-            logger.info(f'before {corr} correct too big rot')
+            logger.info(f'before {corr} correction of too big rot')
             mid = self.correct_too_big_rot(target)
             if np.size(points) == 3:
                 self.current_pos = self.pts_6_to_3(target)
@@ -286,7 +290,8 @@ class MecaClass:
         else:    
             starting_pos = tuple(self.robot.GetPose())
         delta = np.asarray(target) - np.asarray(starting_pos)
-        logger.info(f'delta in too big rot = {delta}')
+        logger.info("delta in too big rot = (%s)", ", ".join(f"{v:.3g}" for v in delta))
+
         rot_idx = np.array([5], dtype=int)  # Rotational indices in Mecademic pose: rx, ry, rz
         over = np.abs(delta[rot_idx]) > 180.0
         if np.any(over):
@@ -298,7 +303,7 @@ class MecaClass:
                 if is_over:
                     mid[i] = starting_pos[i] + 0.5 * delta[i]
                     logger.info('Large rotation detected. Splitting MoveLin into two steps. '
-                                f'start={starting_pos} mid={mid} target={target}')
+                                f'start={starting_pos} mid={tuple(mid)} target={target}')
             return mid
         else:
             logger.info('no correction for too big rot')
