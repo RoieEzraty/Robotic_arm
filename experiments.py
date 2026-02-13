@@ -50,56 +50,111 @@ def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: 
 	return x_y_theta_vec, F_vec
 
 
-def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_range: float, N: int,
-	              connect_hinge: bool = True):
-	"""
-	connect_hinge - bool, True: start from above, let user connect hinge and only then lower tip
-	"""
+def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int, 
+	              y_step: float, x_step: float, connect_hinge: bool = True, move_mod: str = "lin",
+	              sweep_mod: str = "pole"):
+    """
+    Protocol:
+      Sweep 1:  theta 0 -> +theta_max -> 0
+      Translate: MoveLin along y by y_step (theta held at 0)
+      Sweep 2:  theta 0 -> -theta_max -> 0
+    
+    inputs:
+    connect_hinge - bool, True: start from above, let user connect hinge and only then lower tip
+    y_step        - float [mm], linear motion along +y after first sweep
+	move_mod      - str, "lin" or "pose"
 
-	m.set_TRF_wrt_holder(mod='stress_strain')
+    Returns:
+      thetas_all: (M,) angles commanded (deg)
+      Fx_all, Fy_all: (M,) measured mean forces for each angle
+    """
+    m.set_TRF_wrt_holder(mod="stress_strain")
 
-	if connect_hinge:
-		# ------ move to position above hinge ------
-		m.robot.MoveLin(130, -13, 43, -180, 0, 0)
-		m.robot.WaitIdle()
-		
-		# ------ user inputs ------
-		# receive input from user they are ready. User holds hinge straight below robot tip
-		input("place hinge below tip and press Enter to connect")
-		# lower arm and connect
-		m.robot.MoveLin(130, -13, 30, -180, 0, 0)
-		m.robot.WaitIdle()
+    if connect_hinge:
+        # move above hinge
+        m.robot.MoveLin(129.5, -12.5, 41, -180, 0, 0)
+        m.robot.WaitIdle()
 
-	# ------ Experiment prelims ------
-	init_pos_6 = m.robot.GetPose()
-	thetas_vec_up = np.linspace(-theta_range, theta_range, int(N/2))
-	thetas_vec_down = np.linspace(theta_range, -theta_range, int(N/2))
-	if N % 2 == 1:
-	   thetas_vec_down = np.append(thetas_vec_down, -theta_range) 
-	thetas_vec = np.append(thetas_vec_up, thetas_vec_down)
-	Fx_vec = np.zeros((N,))
-	Fy_vec = np.zeros((N,))
+        input("place hinge below tip and press Enter to connect")
 
-	# ------ Experiment ------
-	for i, theta in enumerate(thetas_vec):
-		# move
-	    pos_6 = (init_pos_6[0], init_pos_6[1], init_pos_6[2], init_pos_6[3], init_pos_6[4], theta)
-	    print(f'pos_6{pos_6}')
-	    # m.robot.MoveLine(*pos_6)
-	    m.move_pos_w_mid(*pos_6)
+        # lower to connect
+        m.robot.MoveLin(129.5, -12.5, 30, -180, 0, 0)
+        m.robot.WaitIdle()
 
-	    # measure
-	    Snsr.measure()
-	    Fx, Fy = np.mean(Snsr.force_data[:, 0]), np.mean(Snsr.force_data[:, 1])
+    init_pos_6 = tuple(m.robot.GetPose())  # (x,y,z,rx,ry,rz)
+    x0, y0, z0, rx0, ry0, _rz0 = init_pos_6
 
-	    # save
-	    Fx_vec[i], Fy_vec[i] = Fx, Fy
+    def theta_sweep(theta_end: float, theta_ss: float, N: int) -> np.ndarray:
+        """
+        Build: -theta_ss -> theta_end -> +theta_ss, inclusive, without duplicating endpoints.
+        N is the total number of points in the sweep.
+        """
+        if N < 2:
+            return np.array([0.0], dtype=float) 
 
-	# ------- de-stress at end ------
-	end_pos = (init_pos_6[0], init_pos_6[1], init_pos_6[2], init_pos_6[3], init_pos_6[4], 0.0)
-	m.robot.MoveLin(*end_pos)
+        n_up = N // 2 + 1
+        n_down = N - n_up + 1
 
-	return thetas_vec, Fx_vec, Fy_vec
+        up = np.linspace(-theta_ss, theta_end, n_up)                 # includes 0 and theta_end
+        down = np.linspace(theta_end, theta_ss, n_down)[1:]         # drop theta_end duplicate
+        return np.concatenate([up, down])
+
+    def run_sweep_at_xy(theta_end: float, theta_ss: float, x: float, y: float):
+        thetas = theta_sweep(theta_end, theta_ss, N)
+        Fx = np.zeros((thetas.size,), dtype=float)
+        Fy = np.zeros((thetas.size,), dtype=float)
+
+        for i, th in enumerate(thetas):
+            target6 = np.array([x, y, z0, rx0, ry0, th], dtype=float)
+            m.move_pos_w_mid(target6, Sprvsr=None, mod=move_mod)
+
+            Snsr.measure()
+            Fx[i] = float(np.mean(Snsr.force_data[:, 0]))
+            Fy[i] = float(np.mean(Snsr.force_data[:, 1]))
+
+        return thetas, Fx, Fy
+
+    if sweep_mod == "pole":
+	    # ===== Linear motion to go behind arm
+	    y1 = float(y0 - y_step)
+	    x1 = float(x0 - x_step)
+	    m.robot.MoveLin(x1, y1, z0, rx0, ry0, 0.0)
+	    m.robot.WaitIdle()
+	    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
+	    m.robot.WaitIdle()
+
+    # ===== Sweep 1: 0 -> +theta_max -> 0 at (x0,y0)
+    th1, Fx1, Fy1 = run_sweep_at_xy(+theta_max, +theta_ss, x0, y0)
+
+    # Ensure theta=0 before the y translation
+    m.move_pos_w_mid(np.array([x0, y0, z0, rx0, ry0, 0.0], dtype=float), Sprvsr=None, mod=move_mod)
+
+    if sweep_mod == "pole":
+	    # ===== Linear motion to go behind arm, 2nd time
+	    y1 = float(y0 + y_step)
+	    x1 = float(x0 - x_step)
+	    m.robot.MoveLin(x1, y1, z0, rx0, ry0, 0.0)
+	    m.robot.WaitIdle()
+	    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
+	    m.robot.WaitIdle()
+
+    # ===== Sweep 2: 0 -> -theta_max -> 0 at (x0,y1)
+    th2, Fx2, Fy2 = run_sweep_at_xy(-theta_max, -theta_ss, x0, y0)
+
+    # de-stress at end
+    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
+    m.robot.WaitIdle()
+
+    # concatenate (optionally keep a separator if you want)
+    if sweep_mod == "pole":  # offset thetas due to pole
+    	delta_theta = np.rad2deg(np.arctan(m.pole_rad / m.x_offset))
+    	th1 = th1 + delta_theta
+    	th2 = th2 - delta_theta
+    thetas_all = np.concatenate([th1, th2])
+    Fx_all = np.concatenate([Fx1, Fx2])
+    Fy_all = np.concatenate([Fy1, Fy2])
+
+    return thetas_all, Fx_all, Fy_all
 
 
 def calibrate_forces_all_axes(m: MecaClass, Snsr: ForsentekClass, weights_gr: list) -> None:

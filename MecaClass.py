@@ -112,6 +112,7 @@ class MecaClass:
         self.tip_length = load_cell_thick + holder_len
         if mod == 'stress_strain':
             self.x_offset = self.cfg.getfloat("position", "offset_stress_strain", fallback=None)
+            self.pole_rad = self.cfg.getfloat("position", "pole_rad", fallback=None)
         else:
             self.x_offset = 0.0
         self.robot.SetTrf(-self.x_offset, 0.0, self.tip_length, 0.0, 0.0, 0.0)
@@ -267,7 +268,7 @@ class MecaClass:
 
     def pts_3_to_6(self, points) -> tuple:
         return (points[0], points[1], self.pos_home[2], self.pos_home[3], self.pos_home[4], 
-                points[2])
+                self.sim_to_robot_theta(points[2]))
         
     def pts_6_to_3(self, points) -> NDArray:
         return np.array([points[0], points[1], points[-1]])

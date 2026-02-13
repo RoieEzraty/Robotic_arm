@@ -200,3 +200,34 @@ def export_training_csv(path_csv: str, Sprvsr, T=None):
                     float(Sprvsr.desired_F_in_t[t, 1])]
 
             w.writerow(row)
+
+
+def load_stress_strain(path: str, file_type: str = 'csv'):
+    """
+    
+    inputs:
+    path      - 
+    file_type - 'csv' - file (created by my stress strain code in main.ipynb)
+                'txt' - my translation of Leon's shims experiments
+
+    """
+    if file_type == 'csv':
+        df = pd.read_csv(path)
+
+        thetas_vec = df["theta"].to_numpy(dtype=float)
+        Fx_vec = df["F_x"].to_numpy(dtype=float)
+        Fy_vec = df["F_y"].to_numpy(dtype=float)
+        torque_x = df["torque_x"].to_numpy(dtype=float)
+        torque_y = df["torque_y"].to_numpy(dtype=float)
+    elif file_type == 'txt':
+        data = np.loadtxt(path, delimiter=",")
+        
+        thetas_vec = data[:, 0]
+        torque_x = data[:, 1]
+        
+        # dump other sizes as zeros
+        torque_y = np.zeros(np.shape(torque_x))
+        Fx_vec = np.zeros(np.shape(torque_x))
+        Fy_vec = np.zeros(np.shape(torque_x))
+
+    return thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y
