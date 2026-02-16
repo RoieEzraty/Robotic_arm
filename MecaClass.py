@@ -128,10 +128,10 @@ class MecaClass:
             self.z_TRF = holder_len
 
             # set origin at chain base and 
-            x_offset_origin = self.cfg.getfloat("position", "offset_chain_tip",
-                                                fallback=None)[0]  # base, positive sign
-            y_offset_origin = self.cfg.getfloat("position", "offset_chain_tip", 
-                                                fallback=None)[0]  # base, positive sign
+            x_offset_origin = self.cfg.get("position", "offset_chain_tip",
+                                           fallback=None)[0]  # base, positive sign
+            y_offset_origin = self.cfg.get("position", "offset_chain_tip", 
+                                           fallback=None)[1]  # base, positive sign
             self.x_WRF = x_offset_origin
             self.y_WRF = y_offset_origin
         else:  # nothing special in x, y

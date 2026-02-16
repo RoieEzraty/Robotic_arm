@@ -20,37 +20,65 @@ if TYPE_CHECKING:
 	from MecaClass import MecaClass
 
 
-def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: SupervisorClass,
-	                                x_range: float, y_range: float, theta_range: float, N: int):
-	# set origin at chain base and tip at chain end
-	m.set_frames(mod="training")
+def sweep_measurement_fixed_origami(
+        m: MecaClass,
+        Snsr: ForsentekClass,
+        Sprvsr: SupervisorClass,
+        x_range: Optional[float] = None,
+        y_range: Optional[float] = None,
+        theta_range: Optional[float] = None,
+        N: Optional[int] = None,
+        path: Optional[str] = None):
 
-	if N == 1:
-		x_vec = np.array([x_range])
-		y_vec = np.array([y_range])
-		theta_vec = np.array([theta_range])  # [deg]
-	else:
-		x_vec = np.ones(N) * x_range
-		y_vec = np.linspace(-y_range, y_range, N)
-		theta_vec = np.ones(N) * theta_range
-	x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)
-	F_vec = np.zeros([2, N])
+    m.set_frames(mod="training")
 
-	for i in range(N):
-		pos = x_y_theta_vec[i, :]  # [x, y, theta_z]
+    # -----------------------------------------
+    # Load positions from file if path provided
+    # -----------------------------------------
+    if path is not None:
+        rows = file_helpers.load_pos_force(path)  # uses your CSV format
+        x_y_theta_vec = np.array([r["pos"] for r in rows], dtype=float)
+        N = x_y_theta_vec.shape[0]
 
-		# move arm
-		print(f"moving robot to pos={pos}")
-		m.move_pos_w_mid(pos, Sprvsr)
+    # -----------------------------------------
+    # Generate sweep programmatically if path not provided
+    # -----------------------------------------
+    else:
+        if None in (x_range, y_range, theta_range, N):
+            raise ValueError("If path is None, must provide x_range, y_range, theta_range, N")
 
-		# record force
-		print("recording force")
-		Snsr.measure(2)   # [Fx, Fy, torque]
-		Sprvsr.global_force(Snsr, m)
-		F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])
-	print("finished logging force measurements")
+        if N == 1:
+            x_vec = np.array([x_range])
+            y_vec = np.array([y_range])
+            theta_vec = np.array([theta_range])
+        else:
+            x_vec = np.ones(N) * x_range
+            y_vec = np.linspace(-y_range, y_range, N)
+            theta_vec = np.ones(N) * theta_range
 
-	return x_y_theta_vec, F_vec
+        x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)
+
+    # -----------------------------------------
+    # Run measurement
+    # -----------------------------------------
+    F_vec = np.zeros([2, N])
+
+    for i in range(N):
+        pos = x_y_theta_vec[i, :]
+
+        print(f"moving robot to pos={pos}")
+        m.move_pos_w_mid(pos, Sprvsr)
+
+        print("recording force")
+        Snsr.measure(2)
+        Sprvsr.global_force(Snsr, m)
+
+        F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])
+
+    print("finished logging force measurements")
+
+    return x_y_theta_vec, F_vec
+
 
 
 def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int, 
