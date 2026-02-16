@@ -70,7 +70,7 @@ def sweep_measurement_fixed_origami(
         m.move_pos_w_mid(pos, Sprvsr)
 
         print("recording force")
-        Snsr.measure(2)
+        Snsr.measure(0.5)
         Sprvsr.global_force(Snsr, m)
 
         F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])

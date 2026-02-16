@@ -2,6 +2,7 @@ from __future__ import annotations
 import copy
 import csv
 import time
+import ast
 import numpy as np
 import pandas as pd
 
@@ -231,3 +232,14 @@ def load_stress_strain(path: str, file_type: str = 'csv'):
         Fy_vec = np.zeros(np.shape(torque_x))
 
     return thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y
+
+
+def cfg_get_vec2(cfg, section, key, fallback=None):
+    s = cfg.get(section, key, fallback=None)
+    if s is None:
+        return fallback
+    v = ast.literal_eval(s)          # parses "[83.2, -11.0]" -> list
+    v = np.asarray(v, dtype=float)
+    if v.shape != (2,):
+        raise ValueError(f"{section}.{key} must be length-2, got {v}")
+    return v

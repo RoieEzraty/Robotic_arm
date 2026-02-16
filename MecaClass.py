@@ -114,26 +114,22 @@ class MecaClass:
                                              fallback=None)  # tip, negative sign
             self.x_TRF = - x_offset_tip
             self.y_TRF = 0.0
-            holder_len = self.cfg.getfloat("position", "holder_len", 
-                                           fallback=None)  # Change to pole length, longer that holder?
-            self.z_TRF = holder_len
             self.pole_rad = self.cfg.getfloat("position", "pole_rad", fallback=None)
         elif mod == 'training':
             # set tip at chain end
             x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip", 
                                              fallback=None)  # tip, negative sign
-            self.x_TRF = -x_offset_tip
+            self.x_TRF = x_offset_tip
             self.y_TRF = 0.0
-            holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
-            self.z_TRF = holder_len
 
             # set origin at chain base and 
-            x_offset_origin = self.cfg.get("position", "offset_chain_tip",
-                                           fallback=None)[0]  # base, positive sign
-            y_offset_origin = self.cfg.get("position", "offset_chain_tip", 
-                                           fallback=None)[1]  # base, positive sign
-            self.x_WRF = x_offset_origin
-            self.y_WRF = y_offset_origin
+            origin = file_helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
+            # x_offset_origin = self.cfg.get("position", "pos_origin",
+            #                                fallback=None)[0]  # base, positive sign
+            # y_offset_origin = self.cfg.get("position", "pos_origin", 
+            #                                fallback=None)[1]  # base, positive sign
+            self.x_WRF = origin[0]
+            self.y_WRF = origin[1]
         else:  # nothing special in x, y
             self.x_TRF = 0.0
             self.y_TRF = 0.0
@@ -143,7 +139,8 @@ class MecaClass:
 
         # z in all cases should account for holder + load cell
         load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
-        self.z_TRF += load_cell_thick
+        holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
+        self.z_TRF = load_cell_thick + holder_len
 
         # set in robot
         self.robot.SetTrf(self.x_TRF, self.y_TRF, self.z_TRF, 0.0, 0.0, 0.0)
