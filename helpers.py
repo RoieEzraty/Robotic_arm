@@ -33,7 +33,8 @@ def fit_force_vs_voltage(voltages_array: np.ndarray, forces_array: np.ndarray,
     return fit_params
 
 
-def get_total_angle(origin, tip_pos, prev_total_angle):
+def get_total_angle(origin: NDArray, L: float, tip_pos: NDArray,
+                    prev_total_angle: float) -> float:
     """
     angle between tip and last fixed node, CCW, [deg]
     pos_arr: array of shape (H, 2)
@@ -41,9 +42,11 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     
     Parameters
     ----------
+    origin           - (2,) array, origin of chain in robot coordinates 
+    L                - float, Edge length (used to define reference point at (L,0)).
     tip_pos          - (2,) array, Current tip position.
     prev_total_angle - float, deg, The accumulated unwrapped angle up to the previous timestep.
-    L                - float, Edge length (used to define reference point at (L,0)).
+    
 
     Returns
     -------
@@ -53,7 +56,8 @@ def get_total_angle(origin, tip_pos, prev_total_angle):
     prev_total_angle_rads = np.deg2rad(prev_total_angle)  # [rad]
     
     # ------ total angle [-pi/2, pi/2] ------
-    dx, dy = origin - tip_pos  # displacement vector
+    angle_origin = origin + np.array([L, 0])  # total angle measured from end of first link
+    dx, dy = angle_origin - tip_pos  # displacement vector
 
     # shift so that 0 is along -x
     total_angle = np.arctan2(dy, dx) - np.pi

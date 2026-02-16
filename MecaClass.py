@@ -91,7 +91,7 @@ class MecaClass:
         logger.info("Config parameters done")
 
         # set offset due to force sensor and gripper
-        self.set_TRF_wrt_holder()
+        self.set_frames()
 
         # turn configuration - wires do not coil too much
         # self.robot.SetConfTurn(2)
@@ -106,16 +106,48 @@ class MecaClass:
         self.robot.WaitHomed()
         logger.info("Robot at home")
 
-    def set_TRF_wrt_holder(self, mod: Optional[str] = None):
-        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
-        holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
-        self.tip_length = load_cell_thick + holder_len
+    def set_frames(self, mod: Optional[str] = None):
+        # x, y, offsets
         if mod == 'stress_strain':
-            self.x_offset = self.cfg.getfloat("position", "offset_stress_strain", fallback=None)
+            # set origin at chain base and tip at chain end
+            x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip",
+                                             fallback=None)  # tip, negative sign
+            self.x_TRF = - x_offset_tip
+            self.y_TRF = 0.0
+            holder_len = self.cfg.getfloat("position", "holder_len", 
+                                           fallback=None)  # Change to pole length, longer that holder?
+            self.z_TRF = holder_len
             self.pole_rad = self.cfg.getfloat("position", "pole_rad", fallback=None)
-        else:
-            self.x_offset = 0.0
-        self.robot.SetTrf(-self.x_offset, 0.0, self.tip_length, 0.0, 0.0, 0.0)
+        elif mod == 'training':
+            # set tip at chain end
+            x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip", 
+                                             fallback=None)  # tip, negative sign
+            self.x_TRF = -x_offset_tip
+            self.y_TRF = 0.0
+            holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
+            self.z_TRF = holder_len
+
+            # set origin at chain base and 
+            x_offset_origin = self.cfg.getfloat("position", "offset_chain_tip",
+                                                fallback=None)[0]  # base, positive sign
+            y_offset_origin = self.cfg.getfloat("position", "offset_chain_tip", 
+                                                fallback=None)[0]  # base, positive sign
+            self.x_WRF = x_offset_origin
+            self.y_WRF = y_offset_origin
+        else:  # nothing special in x, y
+            self.x_TRF = 0.0
+            self.y_TRF = 0.0
+            self.z_TRF = 0.0
+            self.x_WRF = 0.0
+            self.y_WRF = 0.0
+
+        # z in all cases should account for holder + load cell
+        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
+        self.z_TRF += load_cell_thick
+
+        # set in robot
+        self.robot.SetTrf(self.x_TRF, self.y_TRF, self.z_TRF, 0.0, 0.0, 0.0)
+        self.robot.SetWRF(self.x_WRF, self.y_WRF, 0.0, 0.0, 0.0, 0.0)
 
     def move_to_origin(self):
         logger.info('Moving the robot to origin')
@@ -321,7 +353,8 @@ class MecaClass:
             prev = 0.0
 
         # calculate current total angle
-        Sprvsr.total_angle = helpers.get_total_angle(self.pos_origin, np.array([x, y]), prev)  # [deg]
+        Sprvsr.total_angle = helpers.get_total_angle(self.pos_origin, Sprvsr.L, np.array([x, y]),
+                                                     prev)  # [deg]
 
         # effective radius of chain
         R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)

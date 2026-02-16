@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 
 def sweep_measurement_fixed_origami(m: MecaClass, Snsr: ForsentekClass, Sprvsr: SupervisorClass,
 	                                x_range: float, y_range: float, theta_range: float, N: int):
+	# set origin at chain base and tip at chain end
+	m.set_frames(mod="training")
+
 	if N == 1:
 		x_vec = np.array([x_range])
 		y_vec = np.array([y_range])
@@ -68,7 +71,7 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
       thetas_all: (M,) angles commanded (deg)
       Fx_all, Fy_all: (M,) measured mean forces for each angle
     """
-    m.set_TRF_wrt_holder(mod="stress_strain")
+    m.set_frames(mod="stress_strain")
 
     if connect_hinge:
         # move above hinge
@@ -147,7 +150,8 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
 
     # concatenate (optionally keep a separator if you want)
     if sweep_mod == "pole":  # offset thetas due to pole
-    	delta_theta = np.rad2deg(np.arctan(m.pole_rad / m.x_offset))
+    	# -x_TRF is half a link, pole_rad is pole radius, constant angle shift is the tangent
+    	delta_theta = np.rad2deg(np.arctan(m.pole_rad / (-m.x_TRF)))
     	th1 = th1 + delta_theta
     	th2 = th2 - delta_theta
     thetas_all = np.concatenate([th1, th2])
