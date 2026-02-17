@@ -1,3 +1,5 @@
+import ast
+
 import numpy as np
 from numpy.polynomial import polynomial as poly
 from numpy.typing import NDArray
@@ -129,6 +131,17 @@ def rotate_force_frame(force_in_t, tip_angle):
     # Fx_global_in_t = force_in_t[:, 0]*np.cos(tip_angle_rad) - force_in_t[:, 1]*np.sin(tip_angle_rad)
     # Fy_global_in_t = force_in_t[:, 0]*np.sin(tip_angle_rad) + force_in_t[:, 1]*np.cos(tip_angle_rad)
     return Fx_global_in_t, Fy_global_in_t
+
+
+def cfg_get_vec2(cfg, section, key, fallback=None):
+    s = cfg.get(section, key, fallback=None)
+    if s is None:
+        return fallback
+    v = ast.literal_eval(s)          # parses "[83.2, -11.0]" -> list
+    v = np.asarray(v, dtype=float)
+    if v.shape != (2,):
+        raise ValueError(f"{section}.{key} must be length-2, got {v}")
+    return v
 
 
 def clamp(v, lo, hi):

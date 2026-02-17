@@ -37,7 +37,7 @@ def sweep_measurement_fixed_origami(
     # -----------------------------------------
     if path is not None:
         rows = file_helpers.load_pos_force(path)  # uses your CSV format
-        x_y_theta_vec = np.array([r["pos"] for r in rows], dtype=float)
+        x_y_theta_vec = np.array([r["pos"] for r in rows], dtype=float)  # [mm, mm, deg]
         N = x_y_theta_vec.shape[0]
 
     # -----------------------------------------
@@ -56,7 +56,7 @@ def sweep_measurement_fixed_origami(
             y_vec = np.linspace(-y_range, y_range, N)
             theta_vec = np.ones(N) * theta_range
 
-        x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)
+        x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)  # [mm, mm, deg]
 
     # -----------------------------------------
     # Run measurement
@@ -70,15 +70,17 @@ def sweep_measurement_fixed_origami(
         m.move_pos_w_mid(pos, Sprvsr)
 
         print("recording force")
-        Snsr.measure(0.5)
+        Snsr.measure(0.5)  # force measured in [N]
         Sprvsr.global_force(Snsr, m)
 
-        F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])
+        F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])  # [N]
 
     print("finished logging force measurements")
 
-    return x_y_theta_vec, F_vec
+    # convert from [N] to [mN]
+    F_vec_mN = F_vec * Sprvsr.convert_F
 
+    return x_y_theta_vec, F_vec_mN
 
 
 def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int, 

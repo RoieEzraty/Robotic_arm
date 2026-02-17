@@ -2,7 +2,6 @@ from __future__ import annotations
 import copy
 import csv
 import time
-import ast
 import numpy as np
 import pandas as pd
 
@@ -68,7 +67,7 @@ def write_supervisor_dataset(
         t_unix,pos_x,pos_y,pos_z,force_x,force_y
 
     """
-    x_y_theta = np.asarray(x_y_theta, dtype=float)
+    x_y_theta = np.asarray(x_y_theta, dtype=float)  # [mm, mm, deg]
     if x_y_theta.ndim != 2 or x_y_theta.shape[1] != 3:
         raise ValueError(f"x_y_theta must be (N,3). Got {x_y_theta.shape}")
 
@@ -88,7 +87,7 @@ def write_supervisor_dataset(
         writer = csv.writer(f)
 
         if write_header:
-            writer.writerow(["t_unix", "pos_x", "pos_y", "pos_z", "force_x", "force_y"])
+            writer.writerow(["t_unix", "x_tip", "y_tip", "tip_angle_deg", "F_x", "F_y"])
 
         for i in range(x_y_theta.shape[0]):
             x, y, theta_z_deg = (float(x_y_theta[i, 0]),
@@ -192,18 +191,18 @@ def export_training_csv(path_csv: str, Sprvsr, T=None):
         T = int(Sprvsr.T)
 
     # ---- header ----
-    header = ["t", "tip_x", "tip_y", "tip_angle [deg]"]
+    header = ["t", "x_tip", "y_tip", "tip_angle_deg"]
 
-    header += ["upd_tip_x", "upd_tip_y", "upd_tip_angle [deg]"]
+    header += ["upd_x_tip", "upd_y_tip", "upd_tip_angle_deg"]
 
     # loss columns (Sprvsr.loss_in_t is (T, loss_size))
     header += ["loss_x", "loss_y", "loss_MSE"]
 
     # measured
-    header += ["Fx_meas", "Fy_meas"]
+    header += ["F_x_meas", "F_y_meas"]
 
     # desired
-    header += ["Fx_des", "Fy_des"]
+    header += ["F_x_des", "F_y_des"]
 
     # ---- write ----
     with open(path_csv, "w", newline="") as f:
@@ -231,6 +230,23 @@ def export_training_csv(path_csv: str, Sprvsr, T=None):
                     float(Sprvsr.desired_F_in_t[t, 1])]
 
             w.writerow(row)
+
+
+def save_stress_strain(out_path, thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y):
+    out_path = Path(out_path)
+    mode = "w"
+    write_header = (mode == "w") or (not out_path.exists())
+
+    with out_path.open(mode, newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+
+        if write_header:
+            writer.writerow(["theta", "F_x", "F_y", "torque_x", "torque_y"])
+
+        for i in range(thetas_vec.shape[0]):
+            writer.writerow([thetas_vec[i], Fx_vec[i], Fy_vec[i], 
+                             torque_x[i], torque_y[i]])
+            f.flush()
 
 
 def load_stress_strain(path: str, file_type: str = 'csv'):
@@ -262,14 +278,3 @@ def load_stress_strain(path: str, file_type: str = 'csv'):
         Fy_vec = np.zeros(np.shape(torque_x))
 
     return thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y
-
-
-def cfg_get_vec2(cfg, section, key, fallback=None):
-    s = cfg.get(section, key, fallback=None)
-    if s is None:
-        return fallback
-    v = ast.literal_eval(s)          # parses "[83.2, -11.0]" -> list
-    v = np.asarray(v, dtype=float)
-    if v.shape != (2,):
-        raise ValueError(f"{section}.{key} must be length-2, got {v}")
-    return v

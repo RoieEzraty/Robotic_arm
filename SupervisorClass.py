@@ -69,7 +69,8 @@ class SupervisorClass:
         self.loss_norm_in_t = np.zeros([self.T, 2])
         self.loss_MSE_in_t = np.zeros([self.T,])  
 
-        self.origin_rel_to_sim = np.array([108, -14, 0])      
+        self.origin_rel_to_sim = np.array([108, -14, 0]) 
+        self.convert_F = self.cfg.getfloat("files", "convert_F")   
 
     def init_dataset(self, dataset_path: str = "dataset.csv") -> None:
         rng = np.random.default_rng(self.rand_key_dataset)

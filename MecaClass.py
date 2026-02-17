@@ -123,7 +123,7 @@ class MecaClass:
             self.y_TRF = 0.0
 
             # set origin at chain base and 
-            origin = file_helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
+            origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
             # x_offset_origin = self.cfg.get("position", "pos_origin",
             #                                fallback=None)[0]  # base, positive sign
             # y_offset_origin = self.cfg.get("position", "pos_origin", 
