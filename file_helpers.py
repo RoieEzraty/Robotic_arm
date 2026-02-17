@@ -16,12 +16,42 @@ def load_pos_force(path: str):
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+
+        has_time = "t_unix" in reader.fieldnames
+        has_deg = "tip_angle_deg" in reader.fieldnames
+        has_rad = "tip_angle_rad" in reader.fieldnames
+
         for r in reader:
-            rows.append({
-                "t_unix": float(r["t_unix"]),
-                "pos": (float(r["pos_x"]), float(r["pos_y"]), float(r["pos_z"])),
-                "force": (float(r["force_x"]), float(r["force_y"])),
-            })
+            # ----- angle handling -----
+            if has_deg and r["tip_angle_deg"] != "":
+                theta_deg = float(r["tip_angle_deg"])
+            elif has_rad and r["tip_angle_rad"] != "":
+                theta_deg = np.rad2deg(float(r["tip_angle_rad"]))
+            else:
+                raise ValueError(
+                    "File must contain either 'tip_angle_deg' or 'tip_angle_rad'"
+                )
+
+            row = {
+                "pos": (
+                    float(r["x_tip"]),
+                    float(r["y_tip"]),
+                    theta_deg
+                ),
+                "force": (
+                    float(r["F_x"]),
+                    float(r["F_y"])
+                ),
+            }
+
+            # ----- optional time -----
+            if has_time and r["t_unix"] != "":
+                row["t_unix"] = float(r["t_unix"])
+            else:
+                row["t_unix"] = None
+
+            rows.append(row)
+
     return rows
 
 

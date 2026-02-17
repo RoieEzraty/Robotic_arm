@@ -350,8 +350,7 @@ class MecaClass:
             prev = 0.0
 
         # calculate current total angle
-        Sprvsr.total_angle = helpers.get_total_angle(self.pos_origin, Sprvsr.L, np.array([x, y]),
-                                                     prev)  # [deg]
+        Sprvsr.total_angle = helpers.get_total_angle(Sprvsr.L, np.array([x, y]), prev)  # [deg]
 
         # effective radius of chain
         R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)

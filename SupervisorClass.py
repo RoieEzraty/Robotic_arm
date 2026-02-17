@@ -155,8 +155,7 @@ class SupervisorClass:
                 prev_total_angle = 0.0  # [deg]
             else:
                 prev_total_angle = self.total_angle_update_in_t[t-1]  # [deg]
-            self.total_angle = helpers.get_total_angle(m.pos_origin, self.L, tip_pos,
-                                                       prev_total_angle)
+            self.total_angle = helpers.get_total_angle(self.L, tip_pos, prev_total_angle)
             delta_total_angle = self.total_angle - prev_total_angle
             print('current total_angle', self.total_angle)
             # add delta total angle
