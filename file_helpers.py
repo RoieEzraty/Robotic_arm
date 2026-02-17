@@ -19,6 +19,7 @@ def load_pos_force(path: str):
         has_time = "t_unix" in reader.fieldnames
         has_deg = "tip_angle_deg" in reader.fieldnames
         has_rad = "tip_angle_rad" in reader.fieldnames
+        has_update = "upd_x_tip" in reader.fieldnames
 
         for r in reader:
             # ----- angle handling -----
@@ -31,17 +32,16 @@ def load_pos_force(path: str):
                     "File must contain either 'tip_angle_deg' or 'tip_angle_rad'"
                 )
 
-            row = {
-                "pos": (
-                    float(r["x_tip"]),
-                    float(r["y_tip"]),
-                    theta_deg
-                ),
-                "force": (
-                    float(r["F_x"]),
-                    float(r["F_y"])
-                ),
-            }
+            if has_update:
+                row = {"pos_meas": (float(r["x_tip"]), float(r["y_tip"]), theta_deg),
+                       "force_meas": (float(r["Fx_meas"]), float(r["Fy_meas"])),
+                       "pos_update": (float(r["upd_x_tip"]), float(r["upd_y_tip"]), 
+                                      float(r["upd_tip_angle"])),
+                       "force_des": (float(r["Fx_des"]), float(r["Fy_des"]))}
+
+            else:
+                row = {"pos": (float(r["x_tip"]), float(r["y_tip"]), theta_deg),
+                       "force": (float(r["F_x"]), float(r["F_y"]))}
 
             # ----- optional time -----
             if has_time and r["t_unix"] != "":

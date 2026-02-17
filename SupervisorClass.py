@@ -3,9 +3,11 @@ import configparser
 import copy
 import csv
 import pathlib
+import re
 from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Callable, Union, Optional
 import numpy as np
+import pandas as pd
 
 import file_helpers, plot_func, helpers
 
@@ -52,6 +54,14 @@ class SupervisorClass:
             self.alpha = self.cfg.getfloat("training", "alpha")
             self.init_buckle = self.cfg.get("training", "init_buckle")
             self.desired_buckle = self.cfg.get("training", "desired_buckle")
+        elif self.experiment == "predetermined training":
+            self.dataset_path = str(self.cfg.get("experiment", "dataset_path"))
+            with open(self.dataset_path, "r", encoding="utf-8") as f:
+                self.T = sum(1 for _ in f) - 1  # subtract header
+            # find all bracket contents and convert to numpy arrays of buckles
+            buckles = re.findall(r"\[([^\]]+)\]", self.dataset_path)
+            self.init_buckle = np.fromstring(buckles[0], sep=' ')
+            self.desired_buckle = np.fromstring(buckles[1], sep=' ')
         elif self.experiment == "sweep":
             self.T = self.cfg.getint("sweep", "T")
             self.x_range = self.cfg.getint("sweep", "x_range")
@@ -73,7 +83,8 @@ class SupervisorClass:
         self.convert_F = self.cfg.getfloat("files", "convert_F")   
 
     def init_dataset(self, dataset_path: str = "dataset.csv") -> None:
-        rng = np.random.default_rng(self.rand_key_dataset)
+        if self.experiment == 'training':  # use random key for dataset
+            rng = np.random.default_rng(self.rand_key_dataset)
         pos_force_rows = file_helpers.load_pos_force(dataset_path)
 
         # # Convert to arrays (ML-friendly)
@@ -84,8 +95,13 @@ class SupervisorClass:
         # idx = rng.permutation(len(pos))
         # self.pos_in_t = pos[idx]
         # self.desired_F_in_t = force[idx]
-        pos_base = np.array([r["pos"] for r in pos_force_rows], dtype=float)      # (N, 3)
-        force_base = np.array([r["force"] for r in pos_force_rows], dtype=float)  # (N, 2)
+        if self.experiment == 'training':  # upload positions and desired forces
+            pos_base = np.array([r["pos"] for r in pos_force_rows], dtype=float)      # (N, 3)
+            force_base = np.array([r["force"] for r in pos_force_rows], dtype=float)  # (N, 2)
+        elif self.experiment == 'predetermined training':
+            pos_base = np.array([r["pos_meas"] for r in pos_force_rows], dtype=float)      # (N, 3)
+            pos_update = np.array([r["pos_update"] for r in pos_force_rows], dtype=float)      # (N, 3)
+            force_base = np.array([r["force_meas"] for r in pos_force_rows], dtype=float)  # (N, 2)
 
         N = len(pos_base)
         if N == 0:
@@ -96,15 +112,22 @@ class SupervisorClass:
         self.desired_F_in_t = np.zeros((self.T, 2), dtype=float)
 
         # ---- fill by cycling with reshuffle ----
-        t = 0
-        while t < self.T:
-            idx = rng.permutation(N)  # new shuffle each cycle
+        if self.experiment == 'training':
+            t = 0
+            while t < self.T:
+                idx = rng.permutation(N)  # new shuffle each cycle
 
-            k = min(N, self.T - t)    # how many we still need
-            self.pos_in_t[t:t+k] = pos_base[idx[:k]]
-            self.desired_F_in_t[t:t+k] = force_base[idx[:k]]
+                k = min(N, self.T - t)    # how many we still need
+                self.pos_in_t[t:t+k] = pos_base[idx[:k]]
+                self.desired_F_in_t[t:t+k] = force_base[idx[:k]]
 
-            t += k
+                t += k
+        elif self.experiment == 'predetermined training':
+            self.pos_in_t = pos_base
+            self.desired_F_in_t = force_base
+            self.pos_update_in_t = pos_update[1:, :]  # 1st instance is zeros
+            # append last instance again
+            self.pos_update_in_t = np.vstack([self.pos_update_in_t, self.pos_update_in_t[-1]])
 
     def draw_measurement(self, t) -> None:
         self.pos = self.pos_in_t[t, :]
