@@ -133,6 +133,13 @@ def rotate_force_frame(force_in_t, tip_angle):
     return Fx_global_in_t, Fy_global_in_t
 
 
+def TRF_to_robot_tip(x, y, theta_z, tx):
+    # rotate tool offset into world/WRF
+    dx = np.cos(np.deg2rad(theta_z))*tx
+    dy = np.sin(np.deg2rad(theta_z))*tx
+    return x - dx, y - dy
+
+
 def cfg_get_vec2(cfg, section, key, fallback=None):
     s = cfg.get(section, key, fallback=None)
     if s is None:

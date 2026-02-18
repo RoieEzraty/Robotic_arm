@@ -45,7 +45,7 @@ class MecaClass:
         self.joints_home = ast.literal_eval(self.cfg.get("position", "joints_home"))
         self.pos_sleep = ast.literal_eval(self.cfg.get("position", "pos_sleep"))
         self.joints_sleep = ast.literal_eval(self.cfg.get("position", "joints_sleep"))
-        self.pos_origin = ast.literal_eval(self.cfg.get("position", "pos_origin"))
+        self.pos_origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
 
         self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
         self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))  # [deg]
@@ -123,13 +123,13 @@ class MecaClass:
             self.y_TRF = 0.0
 
             # set origin at chain base and 
-            origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
+            # origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
             # x_offset_origin = self.cfg.get("position", "pos_origin",
             #                                fallback=None)[0]  # base, positive sign
             # y_offset_origin = self.cfg.get("position", "pos_origin", 
             #                                fallback=None)[1]  # base, positive sign
-            self.x_WRF = origin[0]
-            self.y_WRF = origin[1]
+            self.x_WRF = self.pos_origin[0]
+            self.y_WRF = self.pos_origin[1]
         else:  # nothing special in x, y
             self.x_TRF = 0.0
             self.y_TRF = 0.0
@@ -356,22 +356,29 @@ class MecaClass:
         R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)
         print(f'effective Radius inside clamp_to_circle_xy = {R_eff}')
 
-        # R_eff = max(0.0, self.R - margin)
-        r_robot = np.hypot(x, y)
-        r_chain = np.hypot(x-self.pos_origin[0], y-self.pos_origin[1])
+        x_tip, y_tip = helpers.TRF_to_robot_tip(x, y, theta_z, self.x_TRF)
+        r_robot = np.hypot(x_tip+self.pos_origin[0], y_tip+self.pos_origin[1])
+        print('r_robot = ', r_robot)
+        print('maximal R robot = ', self.R_robot)
+        r_chain = np.hypot(x, y)
 
         x2, x3, y2, y3 = None, None, None, None
 
         if r_chain >= (R_eff - margin):
             scale = (R_eff - margin) / r_chain
-            x2 = self.pos_origin[0] + (x-self.pos_origin[0]) * scale
-            y2 = self.pos_origin[1] + (y-self.pos_origin[1]) * scale
+            # x2 = self.pos_origin[0] + (x-self.pos_origin[0]) * scale
+            # y2 = self.pos_origin[1] + (y-self.pos_origin[1]) * scale
+            x2 = x * scale
+            y2 = y * scale
             print(f'clamped from x={x},y={y} to x={x2},y={y2} due to chain revolusions')
 
         if r_robot >= (self.R_robot - margin):
             scale = (self.R_robot - margin) / r_robot
-            x3 = x * scale
-            y3 = y * scale
+            print('scale =', scale)
+            x3 = -self.pos_origin[0] + (x+self.pos_origin[0]) * scale
+            y3 = -self.pos_origin[1] + (y+self.pos_origin[1]) * scale
+            # x3 = x * scale
+            # y3 = y * scale
             print(f'clamped from x={x},y={y} to x={x3},y={y3} due to robot limits')
 
         x_clamp = np.nanmin(np.array([x, x2, x3], dtype=float))
