@@ -94,7 +94,7 @@ def write_supervisor_dataset(
                                  float(x_y_theta[i, 1]),
                                  float(x_y_theta[i, 2]))
 
-            Fx, Fy = float(F_vec[0, i]), float(F_vec[1, i])
+            Fx, Fy = float(F_vec[i, 0]), float(F_vec[i, 1])
 
             # ---- write row ----
             t_unix = time.time()

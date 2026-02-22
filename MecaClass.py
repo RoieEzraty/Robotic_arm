@@ -27,7 +27,7 @@ logger.propagate = True
 
 
 class MecaClass:
-    def __init__(self, Sprvsr: "SupervisorClass", margin: float = 5.0,
+    def __init__(self, Sprvsr: "SupervisorClass", margin: float = 1.0,
                  config_path: str = "robot_config.ini"):
         # config
         self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
@@ -57,7 +57,7 @@ class MecaClass:
         # allowed radius of motion, and offset origin
         self.R_robot = helpers.fit_circle_xy(pts_robot)
         print(f"Radius allowed due to robot margins, = {self.R_robot:.2f}")
-        self.R_chain = (Sprvsr.L + margin) * Sprvsr.H
+        self.R_chain = (Sprvsr.L - margin) * (Sprvsr.H + 1)
         print(f"Radius allowed due to chain length, = {self.R_chain:.2f}")
 
     def connect(self):
@@ -108,39 +108,46 @@ class MecaClass:
 
     def set_frames(self, mod: Optional[str] = None):
         # x, y, offsets
+
+        # initiate
+        self.x_TRF, self.y_TRF, self.z_TRF = 0.0, 0.0, 0.0
+        self.x_WRF, self.y_WRF = 0.0, 0.0
+
+        # z in all cases should account for holder + load cell
+        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)       
+        self.z_TRF += load_cell_thick
+
         if mod == 'stress_strain':
             # set origin at chain base and tip at chain end
             x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip",
                                              fallback=None)  # tip, negative sign
-            self.x_TRF = - x_offset_tip
-            self.y_TRF = 0.0
+            self.x_TRF += - x_offset_tip
+            # add offset due to pole tip, up to its middle
+            pole_len_mid = self.cfg.getfloat("position", "pole_len_mid", fallback=None)
+            self.z_TRF += pole_len_mid
+
+            self.x_WRF += self.pos_origin[0]
+            self.y_WRF += self.pos_origin[1]
+
             self.pole_rad = self.cfg.getfloat("position", "pole_rad", fallback=None)
         elif mod == 'training':
             # set tip at chain end
             x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip", 
                                              fallback=None)  # tip, negative sign
-            self.x_TRF = x_offset_tip
-            self.y_TRF = 0.0
-
+            self.x_TRF += x_offset_tip
+            holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
+            self.z_TRF += holder_len
             # set origin at chain base and 
             # origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
             # x_offset_origin = self.cfg.get("position", "pos_origin",
             #                                fallback=None)[0]  # base, positive sign
             # y_offset_origin = self.cfg.get("position", "pos_origin", 
             #                                fallback=None)[1]  # base, positive sign
-            self.x_WRF = self.pos_origin[0]
-            self.y_WRF = self.pos_origin[1]
-        else:  # nothing special in x, y
-            self.x_TRF = 0.0
-            self.y_TRF = 0.0
-            self.z_TRF = 0.0
-            self.x_WRF = 0.0
-            self.y_WRF = 0.0
-
-        # z in all cases should account for holder + load cell
-        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
-        holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
-        self.z_TRF = load_cell_thick + holder_len
+            self.x_WRF += self.pos_origin[0]
+            self.y_WRF += self.pos_origin[1]
+        else:
+            holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
+            self.z_TRF += holder_len
 
         # set in robot
         self.robot.SetTrf(self.x_TRF, self.y_TRF, self.z_TRF, 0.0, 0.0, 0.0)
@@ -180,20 +187,23 @@ class MecaClass:
         else:
             logger.info('poisition given is not x, y, theta_z or 6 DOFs')
 
-        # correct for too big a twist and move
-        corr = 0
-        logger.info(f'before {corr} correction of too big rot')
-        mid = self.correct_too_big_rot(target)  # None of not too big, array of midway points else
-        while mid is not None:
-            corr +=1
-            # self.move_lin_split(mid)
-            self.move_lin_or_pose(mid, mod)
-            logger.info(f'before {corr} correction of too big rot')
-            mid = self.correct_too_big_rot(target)
-            if np.size(points) == 3:
-                self.current_pos = self.pts_6_to_3(target)
-            else:
-                self._get_current_pos()
+        # # correct for too big a twist and move
+        # corr = 0
+        # logger.info(f'before {corr} correction of too big rot')
+        # mid = self.correct_too_big_rot(target)  # None of not too big, array of midway points else
+        # while mid is not None and corr < 4:
+        #     corr +=1
+        #     # self.move_lin_split(mid)
+        #     self.move_lin_or_pose(mid, mod)
+        #     logger.info(f'before {corr} correction of too big rot')
+        #     mid = self.correct_too_big_rot(target)
+        #     if np.size(points) == 3:
+        #         self.current_pos = self.pts_6_to_3(target)
+        #     else:
+        #         self._get_current_pos()
+
+        # if mid is not None:
+        #     logger.error("Too many rotation corrections; continuing to avoid deadlock.")
 
         # move one final time
         # self.move_lin_split(target)
@@ -320,7 +330,8 @@ class MecaClass:
         else:    
             starting_pos = tuple(self.robot.GetPose())
         delta = np.asarray(target) - np.asarray(starting_pos)
-        logger.info("delta in too big rot = (%s)", ", ".join(f"{v:.3g}" for v in delta))
+        print(f'target={target}')
+        print(f'starting_pos={starting_pos}')
 
         rot_idx = np.array([5], dtype=int)  # Rotational indices in Mecademic pose: rx, ry, rz
         over = np.abs(delta[rot_idx]) > 180.0
@@ -339,7 +350,8 @@ class MecaClass:
             logger.info('no correction for too big rot')
             return None
 
-    def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass", margin=2.0):
+    def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass",
+                           robot_margin: float = 1.0, chain_margin: float = 3.0):
         """
         If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
         """
@@ -358,28 +370,30 @@ class MecaClass:
 
         x_tip, y_tip = helpers.TRF_to_robot_tip(x, y, theta_z, self.x_TRF)
         r_robot = np.hypot(x_tip+self.pos_origin[0], y_tip+self.pos_origin[1])
-        print('r_robot = ', r_robot)
-        print('maximal R robot = ', self.R_robot)
         r_chain = np.hypot(x, y)
 
         x2, x3, y2, y3 = None, None, None, None
 
-        if r_chain >= (R_eff - margin):
-            scale = (R_eff - margin) / r_chain
+        if r_chain >= (R_eff - chain_margin):
+            scale = (R_eff - chain_margin) / r_chain
             # x2 = self.pos_origin[0] + (x-self.pos_origin[0]) * scale
             # y2 = self.pos_origin[1] + (y-self.pos_origin[1]) * scale
             x2 = x * scale
             y2 = y * scale
             print(f'clamped from x={x},y={y} to x={x2},y={y2} due to chain revolusions')
+            print(f'since r_chain={r_chain}')
+            print(f'but maximal R_eff of chain={R_eff}')
 
-        if r_robot >= (self.R_robot - margin):
-            scale = (self.R_robot - margin) / r_robot
+        if r_robot >= (self.R_robot - robot_margin):
+            scale = (self.R_robot - robot_margin) / r_robot
             print('scale =', scale)
             x3 = -self.pos_origin[0] + (x+self.pos_origin[0]) * scale
             y3 = -self.pos_origin[1] + (y+self.pos_origin[1]) * scale
             # x3 = x * scale
             # y3 = y * scale
             print(f'clamped from x={x},y={y} to x={x3},y={y3} due to robot limits')
+            print(f'since r_robot={r_robot}')
+            print(f'but maximal robot margins={self.R_robot}')
 
         x_clamp = np.nanmin(np.array([x, x2, x3], dtype=float))
         y_clamp = np.nanmin(np.array([y, y2, y3], dtype=float))

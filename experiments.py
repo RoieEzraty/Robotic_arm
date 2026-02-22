@@ -21,14 +21,15 @@ if TYPE_CHECKING:
 
 
 def sweep_measurement_fixed_origami(
-        m: MecaClass,
-        Snsr: ForsentekClass,
-        Sprvsr: SupervisorClass,
-        x_range: Optional[float] = None,
-        y_range: Optional[float] = None,
-        theta_range: Optional[float] = None,
-        N: Optional[int] = None,
-        path: Optional[str] = None):
+    m: MecaClass,
+    Snsr: ForsentekClass,
+    Sprvsr: SupervisorClass,
+    x_range: Optional[float] = None,
+    y_range: Optional[float] = None,
+    theta_range: Optional[float] = None,
+    N: Optional[int] = None,
+    path: Optional[str] = None,
+):
 
     m.set_frames(mod="training")
 
@@ -36,16 +37,25 @@ def sweep_measurement_fixed_origami(
     # Load positions from file if path provided
     # -----------------------------------------
     if path is not None:
-        rows = file_helpers.load_pos_force(path)  # uses your CSV format
-        x_y_theta_vec = np.array([r["pos"] for r in rows], dtype=float)  # [mm, mm, deg]
+        rows = file_helpers.load_pos_force(path)
+
+        if "pos" in rows[0]:
+            x_y_theta_vec = np.array([r["pos"] for r in rows], dtype=float)
+        elif "pos_meas" in rows[0]:
+            x_y_theta_vec = np.array([r["pos_meas"] for r in rows], dtype=float)
+        else:
+            raise KeyError("Neither 'pos' nor 'pos_meas' found in dataset")
+
         N = x_y_theta_vec.shape[0]
 
     # -----------------------------------------
-    # Generate sweep programmatically if path not provided
+    # Generate sweep programmatically
     # -----------------------------------------
     else:
         if None in (x_range, y_range, theta_range, N):
-            raise ValueError("If path is None, must provide x_range, y_range, theta_range, N")
+            raise ValueError(
+                "If path is None, must provide x_range, y_range, theta_range, N"
+            )
 
         if N == 1:
             x_vec = np.array([x_range])
@@ -56,12 +66,12 @@ def sweep_measurement_fixed_origami(
             y_vec = np.linspace(-y_range, y_range, N)
             theta_vec = np.ones(N) * theta_range
 
-        x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], 1)  # [mm, mm, deg]
+        x_y_theta_vec = np.stack([x_vec, y_vec, theta_vec], axis=1)
 
     # -----------------------------------------
     # Run measurement
     # -----------------------------------------
-    F_vec = np.zeros([2, N])
+    F_vec = np.zeros((N, 2))
 
     for i in range(N):
         pos = x_y_theta_vec[i, :]
@@ -70,17 +80,14 @@ def sweep_measurement_fixed_origami(
         m.move_pos_w_mid(pos, Sprvsr)
 
         print("recording force")
-        Snsr.measure(0.5)  # force measured in [N]
+        Snsr.measure()
         Sprvsr.global_force(Snsr, m)
 
-        F_vec[:, i] = np.array([Sprvsr.Fx, Sprvsr.Fy])  # [N]
+        F_vec[i, :] = np.array([Sprvsr.Fx, Sprvsr.Fy])
 
     print("finished logging force measurements")
 
-    # convert from [N] to [mN]
-    F_vec_mN = F_vec * Sprvsr.convert_F
-
-    return x_y_theta_vec, F_vec_mN
+    return x_y_theta_vec, F_vec
 
 
 def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int, 

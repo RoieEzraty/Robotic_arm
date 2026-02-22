@@ -32,8 +32,8 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: int = None,
     df = pd.read_csv(file_path)
 
     # ------ Extract sizes ------
-    F_measured = np.vstack([df["Fx_meas"].to_numpy(), df["Fy_meas"].to_numpy()])  # shape (2, T)
-    F_desired = np.vstack([df["Fx_des"].to_numpy(), df["Fy_des"].to_numpy()])  # shape (2, T)
+    F_measured = np.vstack([df["F_x_meas"].to_numpy(), df["F_y_meas"].to_numpy()])  # shape (2, T)
+    F_desired = np.vstack([df["F_x_des"].to_numpy(), df["F_y_des"].to_numpy()])  # shape (2, T)
     loss_MSE = df["loss_MSE"].to_numpy()
 
     T = F_measured.shape[1]
@@ -56,7 +56,8 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: int = None,
     axs[0].plot(t[sl], F_measured[1, sl], color=colors_lst[2], label="Fy measured")
     axs[0].plot(t[sl], F_desired[1, sl],  color=colors_lst[2], linestyle="--", label="Fy desired")
 
-    axs[0].set_ylabel("Force [N]")
+    axs[0].set_ylabel("Force [mN]")
+    axs[0].set_ylim([-130, 330])
     axs[0].legend(loc="best")
 
     # ===== bottom: loss from file =====
@@ -65,6 +66,7 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: int = None,
     # axs[1].axhline(0.0, linewidth=1)
     axs[1].set_xlabel("t")
     axs[1].set_ylabel("Loss")
+    axs[1].set_ylim([-0.02, 2.2])
     axs[1].legend(loc="best")
 
     axs[-1].xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -79,8 +81,9 @@ def force_global_during_measurement(t: NDArray, Fx_in_t: NDArray, Fy_in_t: NDArr
     plt.plot(t, Fx_in_t)
     plt.plot(t, Fy_in_t)
     plt.xlabel(r"$t\,[\mathrm{s}]$")
-    plt.ylabel(r"$F\,[\mathrm{N}]$")
+    plt.ylabel(r"$F\,[\mathrm{mN}]$")
     plt.legend(['Fx', 'Fy'])
+    plt.ylim([0, 150])
     plt.show()
 
 
