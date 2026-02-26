@@ -114,8 +114,9 @@ class MecaClass:
         self.x_WRF, self.y_WRF = 0.0, 0.0
 
         # z in all cases should account for holder + load cell
-        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)       
-        self.z_TRF += load_cell_thick
+        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
+        cable_holder_len = self.cfg.getfloat("position", "cable_holder_len", fallback=None)       
+        self.z_TRF += load_cell_thick + cable_holder_len
 
         if mod == 'stress_strain':
             # set origin at chain base and tip at chain end

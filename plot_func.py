@@ -83,7 +83,7 @@ def force_global_during_measurement(t: NDArray, Fx_in_t: NDArray, Fy_in_t: NDArr
     plt.xlabel(r"$t\,[\mathrm{s}]$")
     plt.ylabel(r"$F\,[\mathrm{mN}]$")
     plt.legend(['Fx', 'Fy'])
-    plt.ylim([0, 150])
+    # plt.ylim([-150, 150])
     plt.show()
 
 
