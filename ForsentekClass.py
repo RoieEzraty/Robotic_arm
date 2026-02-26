@@ -49,16 +49,50 @@ class ForsentekClass:
         # return self.F_a * V + self.F_b
         return self.F_a*(V-self.V0)
 
-    def measure(self, T: Optional[float] = None, mode: str = 'F') -> Tuple[NDArray[float], 
-                                                                           NDArray[float]]:
+    def measure(self, T: Optional[float] = None, mode: str = 'F',
+                timeout = None) -> Tuple[NDArray[float], NDArray[float]]:
         if T is not None:
             N = int(T * self.fs)
         else:
             N = int(self.T * self.fs)
-        self.task.timing.cfg_samp_clk_timing(rate=self.fs, sample_mode=AcquisitionType.FINITE,
-                                             samps_per_chan=N)
+
+        # timeout should be longer than the acquisition duration
+        if timeout is None:
+            timeout = T + 1.0  # 1s margin
+
+        # If a previous finite acquisition is still armed/running, stop it before reconfig
+        try:
+            self.task.stop()
+        except nidaqmx.errors.DaqError:
+            pass  # task might not be started yet
+
+        # self.task.timing.cfg_samp_clk_timing(rate=self.fs, sample_mode=AcquisitionType.FINITE,
+        #                                      samps_per_chan=N)
+        # self.voltage_data = np.asarray(self.task.read(number_of_samples_per_channel=N)).T
+
+        self.task.timing.cfg_samp_clk_timing(
+            rate=self.fs,
+            sample_mode=AcquisitionType.FINITE,
+            samps_per_chan=N,
+        )
+
         self.t = np.arange(N) / self.fs
-        self.voltage_data = np.asarray(self.task.read(number_of_samples_per_channel=N)).T
+
+        # Explicitly start so the timing engine is definitely running
+        self.task.start()
+
+        try:
+            self.voltage_data = np.asarray(self.task.read(number_of_samples_per_channel=N, 
+                                                          timeout=timeout)).T
+        finally:
+            # For finite tasks, stopping after read keeps the next call clean
+            try:
+                self.task.stop()
+            except nidaqmx.errors.DaqError:
+                pass
+
+        self.t = np.arange(N) / self.fs
+        
         if mode == 'F':
             self.force_data = self.force_from_voltage(self.voltage_data)
 
