@@ -50,11 +50,11 @@ class ForsentekClass:
         return self.F_a*(V-self.V0)
 
     def measure(self, T: Optional[float] = None, mode: str = 'F',
-                timeout = None) -> Tuple[NDArray[float], NDArray[float]]:
-        if T is not None:
-            N = int(T * self.fs)
-        else:
-            N = int(self.T * self.fs)
+                timeout=None) -> Tuple[NDArray[float], NDArray[float]]:
+        if T is None:
+            T = self.T
+
+        N = int(T * self.fs)
 
         # timeout should be longer than the acquisition duration
         if timeout is None:
