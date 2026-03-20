@@ -91,8 +91,7 @@ def sweep_measurement_fixed_origami(
 
 
 def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int, 
-	              y_step: float, x_step: float, connect_hinge: bool = True, move_mod: str = "lin",
-	              sweep_mod: str = "pole"):
+	              y_step: float, x_step: float, connect_hinge: bool = True, reverse: bool = True):
     """
     Protocol:
       Sweep 1:  theta 0 -> +theta_max -> 0
@@ -102,7 +101,6 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
     inputs:
     connect_hinge - bool, True: start from above, let user connect hinge and only then lower tip
     y_step        - float [mm], linear motion along +y after first sweep
-	move_mod      - str, "lin" or "pose"
 
     Returns:
       thetas_all: (M,) angles commanded (deg)
@@ -123,6 +121,12 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
 
     init_pos_6 = tuple(m.robot.GetPose())  # (x,y,z,rx,ry,rz)
     x0, y0, z0, rx0, ry0, _rz0 = init_pos_6
+
+    if reverse:
+        y_step = -y_step
+        x_step = -x_step
+        theta_max = -theta_max
+        theta_ss = -theta_ss
 
     def theta_sweep(theta_end: float, theta_ss: float, N: int) -> np.ndarray:
         """
@@ -146,7 +150,7 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
 
         for i, th in enumerate(thetas):
             target6 = np.array([x, y, z0, rx0, ry0, th], dtype=float)
-            m.move_pos_w_mid(target6, Sprvsr=None, mod=move_mod)
+            m.move_pos_w_mid(target6, Sprvsr=None, mod="lin")
 
             Snsr.measure()
             Fx[i] = float(np.mean(Snsr.force_data[:, 0]))
@@ -154,29 +158,27 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
 
         return thetas, Fx, Fy
 
-    if sweep_mod == "pole":
-	    # ===== Linear motion to go behind arm
-	    y1 = float(y0 - y_step)
-	    x1 = float(x0 - x_step)
-	    m.robot.MoveLin(x1, y1, z0, rx0, ry0, 0.0)
-	    m.robot.WaitIdle()
-	    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
-	    m.robot.WaitIdle()
+    # ===== Linear motion to go behind arm
+    y1 = float(y0 - y_step)
+    x1 = float(x0 - x_step)
+    m.robot.MoveLin(x1, y1, z0, rx0, ry0, 0.0)
+    m.robot.WaitIdle()
+    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
+    m.robot.WaitIdle()
 
     # ===== Sweep 1: 0 -> +theta_max -> 0 at (x0,y0)
     th1, Fx1, Fy1 = run_sweep_at_xy(+theta_max, +theta_ss, x0, y0)
 
     # Ensure theta=0 before the y translation
-    m.move_pos_w_mid(np.array([x0, y0, z0, rx0, ry0, 0.0], dtype=float), Sprvsr=None, mod=move_mod)
+    m.move_pos_w_mid(np.array([x0, y0, z0, rx0, ry0, 0.0], dtype=float), Sprvsr=None, mod="lin")
 
-    if sweep_mod == "pole":
-	    # ===== Linear motion to go behind arm, 2nd time
-	    y1 = float(y0 + y_step)
-	    x1 = float(x0 - x_step)
-	    m.robot.MoveLin(x1, y1, z0, rx0, ry0, 0.0)
-	    m.robot.WaitIdle()
-	    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
-	    m.robot.WaitIdle()
+    # ===== Linear motion to go behind arm, 2nd time
+    y1 = float(y0 + y_step)
+    x1 = float(x0 - x_step)
+    m.robot.MoveLin(x1, y1, z0, rx0, ry0, 0.0)
+    m.robot.WaitIdle()
+    m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
+    m.robot.WaitIdle()
 
     # ===== Sweep 2: 0 -> -theta_max -> 0 at (x0,y1)
     th2, Fx2, Fy2 = run_sweep_at_xy(-theta_max, -theta_ss, x0, y0)
@@ -186,11 +188,10 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
     m.robot.WaitIdle()
 
     # concatenate (optionally keep a separator if you want)
-    if sweep_mod == "pole":  # offset thetas due to pole
-    	# -x_TRF is half a link, pole_rad is pole radius, constant angle shift is the tangent
-    	delta_theta = np.rad2deg(np.arctan(m.pole_rad / (-m.x_TRF)))
-    	th1 = th1 + delta_theta
-    	th2 = th2 - delta_theta
+    # -x_TRF is half a link, pole_rad is pole radius, constant angle shift is the tangent
+    delta_theta = np.rad2deg(np.arctan(m.pole_rad / (-m.x_TRF)))
+    th1 = th1 + delta_theta
+    th2 = th2 - delta_theta
     thetas_all = np.concatenate([th1, th2])
     Fx_all = np.concatenate([Fx1, Fx2])
     Fy_all = np.concatenate([Fy1, Fy2])
