@@ -1,8 +1,6 @@
 from __future__ import annotations
-import configparser
 import copy
 import csv
-import pathlib
 import re
 from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Callable, Union, Optional
@@ -35,29 +33,30 @@ class SupervisorClass:
     """
     problem: str
 
-    def __init__(self, config_path: str = "supervisor_config.ini") -> None:
+    def __init__(self, CFG=None) -> None:
         """
         Parameters
         ----------
         
         
         """
-        # config
-        self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-        self.cfg.read(pathlib.Path(config_path))
+        if CFG is None:
+            from arm_config import CFG as DEFAULT_CFG
+            CFG = DEFAULT_CFG
+        self.CFG = CFG
 
         # other sizes
-        self.experiment = str(self.cfg.get("experiment", "experiment"))
-        self.dataset_type = str(self.cfg.get("experiment", "dataset_type"))
+        self.experiment = str(CFG.Sprvsr.experiment)
+        self.dataset_type = str(CFG.Sprvsr.dataset_type)
         if self.dataset_type == "from file":
-            self.dataset_path = str(self.cfg.get("experiment", "dataset_path"))
+            self.dataset_path = str(CFG.Sprvsr.dataset_path)
 
         if self.experiment == "training":
-            self.T = self.cfg.getint("training", "T")
-            self.rand_key_dataset = self.cfg.getint("training", "rand_key_dataset")
-            self.alpha = self.cfg.getfloat("training", "alpha")
-            self.init_buckle = self.cfg.get("training", "init_buckle")
-            self.desired_buckle = self.cfg.get("training", "desired_buckle")
+            self.T = int(CFG.Sprvsr.T)
+            self.rand_key_dataset = int(CFG.Sprvsr.rand_key_dataset)
+            self.alpha = float(CFG.Sprvsr.alpha)
+            self.init_buckle = np.asarray(CFG.Sprvsr.init_buckle, dtype=int)
+            self.desired_buckle = np.asarray(CFG.Sprvsr.desired_buckle, dtype=int)
         elif self.experiment == "predetermined training":
             with open(self.dataset_path, "r", encoding="utf-8") as f:
                 self.T = sum(1 for _ in f) - 2  # subtract header and t=0
@@ -66,13 +65,13 @@ class SupervisorClass:
             self.init_buckle = np.fromstring(buckles[0], sep=' ')
             self.desired_buckle = np.fromstring(buckles[1], sep=' ')
         elif self.experiment == "sweep":
-            self.T = self.cfg.getint("sweep", "T")
-            self.x_range = self.cfg.getint("sweep", "x_range")
-            self.y_range = self.cfg.getint("sweep", "y_range")
-            self.theta_range = self.cfg.getint("sweep", "theta_range")  # [deg]
+            self.T = int(CFG.Sprvsr.sweep_T)
+            self.x_range = int(CFG.Sprvsr.x_range)
+            self.y_range = int(CFG.Sprvsr.y_range)
+            self.theta_range = int(CFG.Sprvsr.theta_range)  # [deg]
 
-        self.L = self.cfg.getfloat("chain", "L")
-        self.H = self.cfg.getint("chain", "H")
+        self.L = float(CFG.Sprvsr.L)
+        self.H = int(CFG.Sprvsr.H)
 
         # initiate arrays in training time 
         self.F_in_t = np.zeros([self.T, 2])
@@ -83,7 +82,7 @@ class SupervisorClass:
         self.loss_MSE_in_t = np.zeros([self.T,])  
 
         self.origin_rel_to_sim = np.array([108, -14, 0]) 
-        self.convert_F = self.cfg.getfloat("files", "convert_F")   
+        self.convert_F = float(CFG.Sprvsr.convert_F)
 
     def init_dataset(self, dataset_path: Optional[str] = "dataset.csv",
                      out_path="dataset.csv", measure_des: Optional[bool] = False, 

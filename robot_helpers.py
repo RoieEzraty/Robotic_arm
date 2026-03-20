@@ -5,17 +5,19 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def apply_motion_config(robot, cfg):
+def apply_motion_config(robot, CFG):
     """
     Apply motion-related hyperparameters to a Mecademic robot instance.
     Safe across mecademicpy versions.
     """
 
-    def getfloat(section, key, default=None):
-        return cfg.getfloat(section, key, fallback=default)
+    def getfloat(key, default=None):
+        value = getattr(CFG.Variabs, key, default)
+        return None if value is None else float(value)
 
-    def getint(section, key, default=None):
-        return cfg.getint(section, key, fallback=default)
+    def getint(key, default=None):
+        value = getattr(CFG.Variabs, key, default)
+        return None if value is None else int(value)
 
     def call_if_exists(method_name, *args):
         fn = getattr(robot, method_name, None)
@@ -26,23 +28,23 @@ def apply_motion_config(robot, cfg):
         return False
 
     # Cartesian
-    lin_vel = getfloat("motion", "lin_vel")
+    lin_vel = getfloat("lin_vel")
     if lin_vel is not None:
         call_if_exists("SetCartLinVel", lin_vel)
 
-    lin_acc = getfloat("motion", "lin_acc")
+    lin_acc = getfloat("lin_acc")
     if lin_acc is not None:
         call_if_exists("SetCartLinAcc", lin_acc)
 
     # Joint
-    jvel = getfloat("motion", "vel")
+    jvel = getfloat("vel")
     if jvel is not None:
         (call_if_exists("SetJointVel", jvel)
          or call_if_exists("SetJointsVel", jvel)
          or call_if_exists("SetJointVelPct", jvel)
          or call_if_exists("SetJointsVelPct", jvel))
 
-    jacc = getfloat("motion", "acc")
+    jacc = getfloat("acc")
     if jacc is not None:
         (call_if_exists("SetJointAcc", jacc)
          or call_if_exists("SetJointsAcc", jacc)
@@ -50,7 +52,7 @@ def apply_motion_config(robot, cfg):
          or call_if_exists("SetJointsAccPct", jacc))
 
     # Path
-    blending = getint("motion", "blending")
+    blending = getint("blending")
     if blending is not None:
         call_if_exists("SetBlending", blending)
 

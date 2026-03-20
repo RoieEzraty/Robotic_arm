@@ -1,10 +1,8 @@
 from __future__ import annotations
-import configparser
 import logging
-import pathlib
 import numpy as np
 import copy
-import ast
+import pathlib
 
 import mecademicpy.robot as mdr
 import mecademicpy.robot_initializer as initializer
@@ -27,32 +25,32 @@ logger.propagate = True
 
 
 class MecaClass:
-    def __init__(self, Sprvsr: "SupervisorClass", margin: float = 1.0,
-                 config_path: str = "robot_config.ini"):
-        # config
-        self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-        self.cfg.read(pathlib.Path(config_path))
+    def __init__(self, Sprvsr: "SupervisorClass", CFG=None, margin: float = 1.0):
+        if CFG is None:
+            from arm_config import CFG as DEFAULT_CFG
+            CFG = DEFAULT_CFG
+        self.CFG = CFG
 
         # ip priority: explicit arg > config file
-        self.ip = self.cfg.get("robot", "ip", fallback=None)
+        self.ip = str(CFG.Variabs.ip)
         logger.info(f'Robot IP: {self.ip}')
         
         # robot instance
         self.robot = initializer.RobotWithTools()
 
         # get origin
-        self.pos_home = ast.literal_eval(self.cfg.get("position", "pos_home"))
-        self.joints_home = ast.literal_eval(self.cfg.get("position", "joints_home"))
-        self.pos_sleep = ast.literal_eval(self.cfg.get("position", "pos_sleep"))
-        self.joints_sleep = ast.literal_eval(self.cfg.get("position", "joints_sleep"))
-        self.pos_origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
+        self.pos_home = tuple(CFG.Variabs.pos_home)
+        self.joints_home = tuple(CFG.Variabs.joints_home)
+        self.pos_sleep = tuple(CFG.Variabs.pos_sleep)
+        self.joints_sleep = tuple(CFG.Variabs.joints_sleep)
+        self.pos_origin = np.asarray(CFG.Variabs.pos_origin, dtype=float)
 
-        self.norm_length = ast.literal_eval(self.cfg.get("position", "norm_length"))
-        self.norm_angle = ast.literal_eval(self.cfg.get("position", "norm_angle"))  # [deg]
+        self.norm_length = float(CFG.Variabs.norm_length)
+        self.norm_angle = float(CFG.Variabs.norm_angle)  # [deg]
 
-        self.theta_sim_to_robot = ast.literal_eval(self.cfg.get("position", "theta_sim_to_robot"))  # int
+        self.theta_sim_to_robot = float(CFG.Variabs.theta_sim_to_robot)
 
-        limits_path = self.cfg.get("limits", "path")
+        limits_path = str(CFG.Variabs.limits_path)
         pts_robot = file_helpers.load_perimeter_xy(limits_path, x_col="x", y_col="y")
         # allowed radius of motion, and offset origin
         self.R_robot = helpers.fit_circle_xy(pts_robot)
@@ -87,7 +85,7 @@ class MecaClass:
 
         # apply hyperparams from config
         logger.info("Applying config parameters")
-        robot_helpers.apply_motion_config(self.robot, self.cfg)
+        robot_helpers.apply_motion_config(self.robot, self.CFG)
         logger.info("Config parameters done")
 
         # set offset due to force sensor and gripper
@@ -114,29 +112,27 @@ class MecaClass:
         self.x_WRF, self.y_WRF = 0.0, 0.0
 
         # z in all cases should account for holder + load cell
-        load_cell_thick = self.cfg.getfloat("position", "load_cell_thick", fallback=None)
-        cable_holder_len = self.cfg.getfloat("position", "cable_holder_len", fallback=None)       
+        load_cell_thick = float(self.CFG.Variabs.load_cell_thick)
+        cable_holder_len = float(self.CFG.Variabs.cable_holder_len)
         self.z_TRF += load_cell_thick + cable_holder_len
 
         if mod == 'stress_strain':
             # set origin at chain base and tip at chain end
-            x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip",
-                                             fallback=None)  # tip, negative sign
+            x_offset_tip = float(self.CFG.Variabs.offset_chain_tip)  # tip, negative sign
             self.x_TRF += - x_offset_tip
             # add offset due to pole tip, up to its middle
-            pole_len_mid = self.cfg.getfloat("position", "pole_len_mid", fallback=None)
+            pole_len_mid = float(self.CFG.Variabs.pole_len_mid)
             self.z_TRF += pole_len_mid
 
             self.x_WRF += self.pos_origin[0]
             self.y_WRF += self.pos_origin[1]
 
-            self.pole_rad = self.cfg.getfloat("position", "pole_rad", fallback=None)
+            self.pole_rad = float(self.CFG.Variabs.pole_rad)
         elif mod == 'training':
             # set tip at chain end
-            x_offset_tip = self.cfg.getfloat("position", "offset_chain_tip", 
-                                             fallback=None)  # tip, negative sign
+            x_offset_tip = float(self.CFG.Variabs.offset_chain_tip)  # tip, negative sign
             self.x_TRF += x_offset_tip
-            holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
+            holder_len = float(self.CFG.Variabs.holder_len)
             self.z_TRF += holder_len
             # set origin at chain base and 
             # origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
@@ -147,7 +143,7 @@ class MecaClass:
             self.x_WRF += self.pos_origin[0]
             self.y_WRF += self.pos_origin[1]
         else:
-            holder_len = self.cfg.getfloat("position", "holder_len", fallback=None)
+            holder_len = float(self.CFG.Variabs.holder_len)
             self.z_TRF += holder_len
 
         # set in robot

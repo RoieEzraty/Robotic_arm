@@ -1,5 +1,3 @@
-import configparser
-import pathlib
 import nidaqmx
 import time
 import numpy as np
@@ -13,26 +11,26 @@ from nidaqmx.constants import TerminalConfiguration, AcquisitionType
 
 
 class ForsentekClass:
-    def __init__(self, config_path: str = "forsentek_config.ini"):
-        # config
-        self.cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-        self.cfg.read(pathlib.Path(config_path))
+    def __init__(self, CFG=None):
+        if CFG is None:
+            from arm_config import CFG as DEFAULT_CFG
+            CFG = DEFAULT_CFG
+        self.CFG = CFG
 
-        # ip priority: explicit arg > config file
-        self.DEV = self.cfg.get("ni", "DEV", fallback=None)
-        CHAN_x = self.cfg.get("ni", "Channel_x", fallback=None)
-        CHAN_y = self.cfg.get("ni", "Channel_y", fallback=None)
-        CHAN_z = self.cfg.get("ni", "Channel_z", fallback=None)
+        self.DEV = str(CFG.Snsr.DEV)
+        CHAN_x = str(CFG.Snsr.Channel_x)
+        CHAN_y = str(CFG.Snsr.Channel_y)
+        CHAN_z = str(CFG.Snsr.Channel_z)
         self.CHAN_x = f"{self.DEV}/{CHAN_x}"
         self.CHAN_y = f"{self.DEV}/{CHAN_y}"
         self.CHAN_z = f"{self.DEV}/{CHAN_z}"
-        self.fs = self.cfg.getfloat("ni", "samp_freq", fallback=None)
-        self.T = self.cfg.getfloat("ni", "T", fallback=None)
-        self.min_val = self.cfg.getfloat("amp", "min_val", fallback=None)
-        self.max_val = self.cfg.getfloat("amp", "max_val", fallback=None)
+        self.fs = float(CFG.Snsr.samp_freq)
+        self.T = float(CFG.Snsr.T)
+        self.min_val = float(CFG.Snsr.min_val)
+        self.max_val = float(CFG.Snsr.max_val)
 
         # angle between x of force sensor and x of robot
-        self.theta_sensor = self.cfg.getfloat("rotation", "angle", fallback=None)
+        self.theta_sensor = float(CFG.Snsr.angle)
 
         # ------ create task ------
         self.task = nidaqmx.Task()
@@ -43,7 +41,7 @@ class ForsentekClass:
             self.task.ai_channels.add_ai_voltage_chan(ch, terminal_config=TerminalConfiguration.RSE,
                                                       min_val=self.min_val, max_val=self.max_val)
 
-        self.norm_force = self.cfg.getfloat("normalization", "norm_force", fallback=None)
+        self.norm_force = float(CFG.Snsr.norm_force)
 
     def force_from_voltage(self, V):
         # return self.F_a * V + self.F_b
@@ -97,7 +95,7 @@ class ForsentekClass:
             self.force_data = self.force_from_voltage(self.voltage_data)
 
     def calibrate_daily(self, V0_from_file: bool = True) -> None:
-        self.calibration_path = self.cfg.get("calibration", "calibration_path")
+        self.calibration_path = str(self.CFG.Snsr.calibration_path)
 
         voltages_arr, forces_arr, stds_arr = file_helpers.load_calibration_csv(self.calibration_path)
         force_fit_params = helpers.fit_force_vs_voltage(voltages_arr, forces_arr, stds_arr)
@@ -107,7 +105,7 @@ class ForsentekClass:
         self.F_a = force_fit_params[1]
         print('make sure robot is in home position=')
         if V0_from_file:
-            self.V0_path = self.cfg.get("calibration", "V0_path", fallback="V0_latest.npz")
+            self.V0_path = str(self.CFG.Snsr.V0_path)
             self.V0 = file_helpers.load_V0(self.V0_path)
             print(f"Loaded V0 from {self.V0_path}: {self.V0}")
         else:
