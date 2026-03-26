@@ -7,7 +7,7 @@ import pandas as pd
 
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, Callable, Union, Iterable, Mapping
 from numpy.typing import NDArray
 
 
@@ -22,6 +22,8 @@ def load_pos_force(path: str):
         has_update = "upd_x_tip" in reader.fieldnames
 
         for r in reader:
+            x = _get_first_in_file(r, ["pos_x", "x_tip", "Px"], name="x")
+            y = _get_first_in_file(r, ["pos_y", "y_tip", "Py"], name="y")
             # ----- angle handling -----
             if has_deg and r["tip_angle_deg"] != "":
                 theta_deg = float(r["tip_angle_deg"])
@@ -33,15 +35,17 @@ def load_pos_force(path: str):
                 )
 
             if has_update:
-                row = {"pos_meas": (float(r["x_tip"]), float(r["y_tip"]), theta_deg),
+                row = {"pos_meas": (x, y, theta_deg),
                        "force_meas": (float(r["Fx_meas"]), float(r["Fy_meas"])),
                        "pos_update": (float(r["upd_x_tip"]), float(r["upd_y_tip"]), 
                                       float(r["upd_tip_angle"])),
                        "force_des": (float(r["Fx_des"]), float(r["Fy_des"]))}
 
             else:
-                row = {"pos": (float(r["x_tip"]), float(r["y_tip"]), theta_deg),
-                       "force": (float(r["F_x"]), float(r["F_y"]))}
+                Fx = _get_first_in_file(r, ["force_x", "F_x", "Fx"], name="Fx")
+                Fy = _get_first_in_file(r, ["force_y", "F_y", "Fy"], name="Fy")
+                row = {"pos": (x, y, theta_deg),
+                       "force": (Fx, Fy)}
 
             # ----- optional time -----
             if has_time and r["t_unix"] != "":
@@ -278,3 +282,27 @@ def load_stress_strain(path: str, file_type: str = 'csv'):
         Fy_vec = np.zeros(np.shape(torque_x))
 
     return thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y
+
+
+def _get_first_in_file(r: Mapping[str, Union[str, float, int, None]], keys: Iterable[str], *, name: str = "",
+                       allow_missing: bool = False) -> Optional[float]:
+    """
+    Extract first valid scalar value from a csv, using list of candidate keys. If no valid key is found: returns `None`
+
+    Parameters
+    ----------
+    r             - Mapping[str, str | float | int | None]. Record-like object (e.g. CSV row dictionary).
+    keys          - Iterable[str]. Ordered candidate keys to search for.
+    name          - str, optional.  Human-readable field name used only for error reporting.
+    allow_missing - bool, optional. If True, return None when no key is found.
+
+    Returns
+    -------
+    value - float or None. First successfully parsed scalar value.
+    """
+    for k in keys:
+        if k in r and r[k] not in ("", None):
+            return float(r[k])
+    if allow_missing:
+        return None
+    raise KeyError(f"None of {keys} found for {name}")

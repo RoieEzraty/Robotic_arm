@@ -20,19 +20,6 @@ if TYPE_CHECKING:
 class SupervisorClass:
     """Supervisor-side: parameters, datasets, measurements, and loss.
 
-    Attributes
-    ----------
-    experiment     : str, 
-    dataset_type   : str, 
-    T              : 
-    pos_in_t       : 
-    desired_F_in_t : 
-    F_in_t         : 
-    pos_update_in_t: 
-    loss_in_t      : 
-    loss_norm_in_t : Normalized force mismatch, shape ``(T, 2)``. [dimless, dimless]
-    loss_MSE_in_t  : Mean-squared normalized loss, shape ``(T,)``. [dimless]
-
     Methods:
     --------
     init_dataset(m=None, Snsr=None) -> None
@@ -51,8 +38,6 @@ class SupervisorClass:
     --------
     _infer_T_from_dataset(dataset_path) -> int
         Number of steps from a predetermined dataset file.
-    _parse_buckles_from_path(dataset_path) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        Extract initial and desired buckle arrays from a dataset path. robot and sensor do not know about them.
     """
 
     experiment: str                               # experiment mode from ``CFG.Sprvsr.experiment``.
@@ -79,9 +64,6 @@ class SupervisorClass:
     Fy: float                                     # current sensed force in global x direction [mN]
     alpha: float                                  # learning rate for training update rule
     rand_key_dataset: float                       # random seed to initiate dataset, for reproducibility
-    init_buckle: tuple[int]                       # initial buckle pattern, 0 = +y_hat, 1 = -y_hat.
-                                                  # the robot and sensor do not know about it
-    desired_buckle: tuple[int]                    # desired buckle pattern
 
     def __init__(self, CFG: Optional["Config"] = None) -> None:
         """
@@ -106,11 +88,8 @@ class SupervisorClass:
             self.T = int(CFG.Sprvsr.T)
             self.rand_key_dataset = int(CFG.Sprvsr.rand_key_dataset)
             self.alpha = float(CFG.Sprvsr.alpha)
-            self.init_buckle = np.asarray(CFG.Sprvsr.init_buckle, dtype=float)
-            self.desired_buckle = np.asarray(CFG.Sprvsr.desired_buckle, dtype=float)
         elif self.experiment == "predetermined training":
             self.T = self._infer_T_from_dataset(self.dataset_path)
-            self.init_buckle, self.desired_buckle = self._parse_buckles_from_path(self.dataset_path)
             self.alpha = float(CFG.Sprvsr.alpha)
         elif self.experiment == "sweep":
             self.T = int(CFG.Sprvsr.sweep_T)
@@ -221,98 +200,69 @@ class SupervisorClass:
 
         Parameters
         ----------
-        t
-            Supervisor step index.
+        t: Supervisor step index.
         """
         self.pos = self.pos_in_t[t, :].copy()
 
-    def global_force(
-        self,
-        Snsr: "ForsentekClass",
-        m: "MecaClass",
-        t: Optional[int] = None,
-        plot: bool = False,
-    ) -> NDArray[np.float64]:
-        """Compute the mean force in the global frame.
+    def global_force(self, Snsr: "ForsentekClass", m: "MecaClass", t: Optional[int] = None,
+                     plot: bool = False) -> NDArray[np.float64]:
+        """Compute mean force in the global x-y frame.
 
         Parameters
         ----------
-        Snsr
-            Sensor instance containing the raw force trace and acquisition time.
-        m
-            Robot instance used to obtain the current pose.
-        t
-            Optional supervisor step index at which to store the force.
-        plot
-            If ``True``, plot the full rotated force trace.
+        t    : Optional, int, supervisor step index at which to store force.
+        plot : If ``True``, plot x-y forces during measurement.
 
         Returns
         -------
-        NDArray[np.float64]
-            Mean global force ``[Fx, Fy]``.
+        NDArray[np.float64], shape (2, ). Mean global force ``[Fx, Fy]``.
         """
+        # setup arrays
         force_in_t = np.asarray(Snsr.force_data, dtype=float) * self.convert_F
         measure_t = np.asarray(Snsr.t, dtype=float)
 
+        # rotate measured forces to global frame
         m._get_current_pos()
         theta = -(float(m.current_pos[-1]) - float(Snsr.theta_sensor))
-        Fx_global_in_t, Fy_global_in_t = helpers.rotate_force_frame(
-            force_in_t,
-            theta,
-        )
+        Fx_global_in_t, Fy_global_in_t = helpers.rotate_force_frame(force_in_t, theta)
 
         if plot:
-            plot_func.force_global_during_measurement(
-                measure_t,
-                Fx_global_in_t,
-                Fy_global_in_t,
-            )
+            plot_func.force_global_during_measurement(measure_t, Fx_global_in_t, Fy_global_in_t)
 
+        # store
         self.Fx = float(np.mean(Fx_global_in_t))
         self.Fy = float(np.mean(Fy_global_in_t))
-
         if t is not None:
             self.F_in_t[t, :] = np.array([self.Fx, self.Fy], dtype=float)
 
         return np.array([self.Fx, self.Fy], dtype=float)
 
     def calc_loss(self, t: int, norm_force: float) -> None:
-        """Compute force loss terms for step ``t``.
+        """Compute and store loss for step ``t``. 
 
         Parameters
         ----------
-        t
-            Supervisor step index.
-        norm_force
-            Normalization factor used to obtain a dimensionless loss.
+        t          : Supervisor step index.
+        norm_force : Normalization factor used to obtain a dimensionless loss.
         """
-        self.loss = (
-            self.desired_F_in_t[t, :] - self.F_in_t[t, :]
-        ) / self.convert_F
-        self.loss_norm = self.loss / float(norm_force)
-        self.loss_MSE = float(np.mean(self.loss_norm ** 2))
+        # calculate
+        self.loss = (self.desired_F_in_t[t, :] - self.F_in_t[t, :]) / self.convert_F  # (2,) [mN]
+        self.loss_norm = self.loss / float(norm_force)  # (2,) [dimless]
+        self.loss_MSE = float(np.mean(self.loss_norm ** 2))  # (1,) [dimless]
 
+        # store
         self.loss_in_t[t, :] = self.loss
         self.loss_norm_in_t[t, :] = self.loss_norm
         self.loss_MSE_in_t[t] = self.loss_MSE
 
-    def calc_tip_update(
-        self,
-        m: "MecaClass",
-        t: int,
-        correct_for_total_angle: bool = True,
-    ) -> None:
-        """Update the commanded tip position from the current loss value.
+    def calc_tip_update(self, m: "MecaClass", t: int, correct_for_total_angle: bool = True) -> None:
+        """Calculate commanded tip position that buckles chain, out of loss value.
 
         Parameters
         ----------
-        m
-            Robot controller supplying normalization factors.
-        t
-            Supervisor step index.
-        correct_for_total_angle
-            If ``True``, correct the commanded tip angle using the accumulated
-            chain angle estimated by :func:`helpers.get_total_angle`.
+        t                      : Supervisor step index.
+        correct_for_total_angle: If ``True``, add commanded tip angle to accumulated
+                                 chain angle estimated by :func:`helpers.get_total_angle`.
 
         Notes
         -----
@@ -327,22 +277,18 @@ class SupervisorClass:
         else:
             prev_pos_update = self.pos_update_in_t[t - 1, :].copy()
 
+        # calculate update
         sgn_x = float(np.sign(prev_pos_update[0]))
         delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
         delta_y_update = -self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
         delta_theta_update = -self.alpha * self.loss_norm[1] * m.norm_angle
 
-        delta_update = np.array(
-            [delta_x_update, delta_y_update, delta_theta_update],
-            dtype=float,
-        )
+        # store
+        delta_update = np.array([delta_x_update, delta_y_update, delta_theta_update], dtype=float)
         self.pos_update_in_t[t, :] = prev_pos_update + delta_update
+        print("pos_update_in_t[t, :] before correct for tot angle = ", self.pos_update_in_t[t, :])
 
-        print(
-            "pos_update_in_t[t, :] before correct for tot angle = ",
-            self.pos_update_in_t[t, :],
-        )
-
+        # correct for total angle
         if correct_for_total_angle:
             if t == 0:
                 prev_total_angle = 0.0
@@ -350,72 +296,59 @@ class SupervisorClass:
                 prev_total_angle = float(self.total_angle_update_in_t[t - 1])
 
             tip_pos = self.pos_update_in_t[t, :2].copy()
-            self.total_angle = helpers.get_total_angle(
-                self.L,
-                tip_pos,
-                prev_total_angle,
-            )
+            self.total_angle = helpers.get_total_angle(self.L, tip_pos, prev_total_angle)
             delta_total_angle = self.total_angle - prev_total_angle
-            print("current total_angle", self.total_angle)
-
             self.pos_update_in_t[t, 2] += delta_total_angle
             self.total_angle_update_in_t[t] = self.total_angle
-
-        print(
-            "pos_update_in_t[t, :] after correct for tot angle = ",
-            self.pos_update_in_t[t, :],
-        )
+            print("current total_angle", self.total_angle)
+            print("pos_update_in_t[t, :] after correct for tot angle = ", self.pos_update_in_t[t, :])
 
     # ---------------------------------------------------------------
     # Helpers for Supervisor Class
     # ---------------------------------------------------------------
     @staticmethod
     def _infer_T_from_dataset(dataset_path: str) -> int:
-        """Infer the number of steps from a predetermined dataset file.
-
-        The original logic subtracts two rows: one for the header and one for
-        the initial ``t = 0`` state.
+        """Infer number of steps from predetermined dataset file.
+        The function subtracts two rows: one header and one ``t = 0`` state.
 
         Parameters
         ----------
-        dataset_path
-            Path to the dataset CSV file.
+        dataset_path: Path to the dataset CSV file.
 
         Returns
         -------
-        int
-            Number of training steps inferred from the file.
+        int, number of training steps in file.
         """
         with Path(dataset_path).open("r", encoding="utf-8") as file_obj:
             return sum(1 for _ in file_obj) - 2
 
-    @staticmethod
-    def _parse_buckles_from_path(dataset_path: str) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        """Extract initial and desired buckle arrays from a dataset path.
+    # @staticmethod
+    # def _parse_buckles_from_path(dataset_path: str) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    #     """Extract initial and desired buckle arrays from a dataset path.
 
-        Parameters
-        ----------
-        dataset_path
-            Path string containing bracketed buckle specifications.
+    #     Parameters
+    #     ----------
+    #     dataset_path
+    #         Path string containing bracketed buckle specifications.
 
-        Returns
-        -------
-        tuple[NDArray[np.float64], NDArray[np.float64]]
-            Parsed initial and desired buckle arrays.
+    #     Returns
+    #     -------
+    #     tuple[NDArray[np.float64], NDArray[np.float64]]
+    #         Parsed initial and desired buckle arrays.
 
-        Raises
-        ------
-        ValueError
-            If the path does not contain at least two bracketed arrays.
-        """
-        import re
+    #     Raises
+    #     ------
+    #     ValueError
+    #         If the path does not contain at least two bracketed arrays.
+    #     """
+    #     import re
 
-        buckles = re.findall(r"\[([^\]]+)\]", dataset_path)
-        if len(buckles) < 2:
-            raise ValueError(
-                "Expected at least two bracketed buckle arrays in dataset_path.",
-            )
+    #     buckles = re.findall(r"\[([^\]]+)\]", dataset_path)
+    #     if len(buckles) < 2:
+    #         raise ValueError(
+    #             "Expected at least two bracketed buckle arrays in dataset_path.",
+    #         )
 
-        init_buckle = np.fromstring(buckles[0], sep=" ", dtype=float)
-        desired_buckle = np.fromstring(buckles[1], sep=" ", dtype=float)
-        return init_buckle, desired_buckle
+    #     init_buckle = np.fromstring(buckles[0], sep=" ", dtype=float)
+    #     desired_buckle = np.fromstring(buckles[1], sep=" ", dtype=float)
+    #     return init_buckle, desired_buckle
