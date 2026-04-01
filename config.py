@@ -35,6 +35,7 @@ class VariabsConfig:
     theta_sim_to_robot: float = -1.0
 
     limits_path: str = r"data\calibrations\arm limits in x y.xlsx"
+    tau_file: str = r"single_hinge_files\Mar12_dl90.csv"  # single hinge stress-strain
 
 
 @dataclass(frozen=True)

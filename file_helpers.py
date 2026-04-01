@@ -284,6 +284,80 @@ def load_stress_strain(path: str, file_type: str = 'csv'):
     return thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y
 
 
+# ---------------------------------------------------------------
+# Build functions from file
+# ---------------------------------------------------------------
+def build_torque_from_file(path: str, *, angles_in_degrees: bool = True):
+    """
+    Load torque–angle measurements from file and construct JAX-compatible interpolation functions for torque and stiffness.
+    Stiffness ``k = dτ/dθ``
+
+    Parameters
+    ----------
+    path              - str, path to the text/CSV file containing two columns: angle and torque.
+    contact           - bool, If True, extend torque function outside measured range to represent contact-induced divergence.
+    angles_in_degrees - bool, If True, convert angles from degrees to radians.
+    savgol_window     - Optional[int], window length for Savitzky–Golay smoothing of the stiffness curve. Must be odd integer > 2.
+    contact_scale     - float, contact scaling factor relative to maximal measured torque.
+
+    Returns
+    -------
+    theta_grid      - jnp.ndarray, shape (N,), sorted vector of angles (radians).
+    torque_grid     - jnp.ndarray, shape (N,), torque samples over theta.
+    k_grid          - jnp.ndarray, shape (N,), local stiffness as numeric derivative of torque w.r.t. theta.
+    torque_of_theta - callable, JAX function theta -> torque interpolation including diverging forces at contact.
+    k_of_theta      - callable, JAX function theta -> stiffness interpolation.
+
+    Notes
+    -----
+    - Negative stiffness values clipped to small positive value (``1e-3``).
+    - Contact occurs outside the measured range.
+    """
+    # ------ load as numpy, sort, unique------
+    try:
+        data = np.loadtxt(path)                # shape (N, 2)
+    except ValueError:
+        data = np.loadtxt(path, delimiter=',')
+    theta = data[:, 0]
+    tau = data[:, 1]
+
+    if path in {"single_hinge_files/Roie_metal_singleMylar_short.csv", 
+                "single_hinge_files/Stress_Strain_steel_1myl1tp_short.csv", 
+                "single_hinge_files/Stress_Strain_1myl1tp_otherEnd_short.csv"}:  # flip axes
+        tau = -tau
+
+    # # degrees -> radians if needed
+    # if angles_in_degrees:
+    #     theta = np.deg2rad(theta)
+
+    # sort & unique (interp requires monotonic x)
+    order = np.argsort(theta)
+    theta = theta[order]
+    tau = tau[order]
+    # collapse duplicates (if any)
+    theta_u, idx = np.unique(theta, return_index=True)
+    tau_u = tau[idx]
+
+    # ------ arrays ------
+    theta_grid = np.asarray(theta_u, dtype=np.float32)
+    torque_grid = np.asarray(tau_u, dtype=np.float32)
+
+    # ----- linear interpolators ------
+    def torque_of_theta(theta_query: np.ndarray) -> np.ndarray:
+        # masks for outside vs inside range
+        th = _clamp(theta_query, theta_grid[0], theta_grid[-1])
+        tau = np.interp(th, theta_grid, torque_grid)  # torque
+        return tau
+
+    def _clamp(x, xmin, xmax):
+        return np.clip(x, xmin, xmax)
+
+    return torque_of_theta
+
+
+# ---------------------------------------------------------------
+# Simple functions
+# ---------------------------------------------------------------
 def _get_first_in_file(r: Mapping[str, Union[str, float, int, None]], keys: Iterable[str], *, name: str = "",
                        allow_missing: bool = False) -> Optional[float]:
     """
