@@ -25,13 +25,11 @@ class VariabsConfig:
 
     # home of robot, motion is taken from there
     pos_home: tuple[float, float, float, float, float, float] = (189.0, 0.0, 28.0, 179.9, 0.1, 0.1)
-    pos_sleep: tuple[float, float, float, float, float, float] = (40.0, 0.0, 200.0, -180.0, 0.0, -90.0)
     # pos_origin: tuple[float, float] = (83.2, -12.3)  # long table holder
     pos_origin: tuple[float, float] = (83.2 - 26, -12.3)  # short table holder
-    joints_home: tuple[float, float, float, float, float, float] = (10.0, 56.5, 0.0, 0.0, 30.0, 180.0)
     joints_sleep: tuple[float, float, float, float, float, float] = (0.0, -30.0, 20.0, 0.0, 100.0, 90.0)
-    norm_length: float = 65.0
-    norm_angle: float = 90.0
+    norm_length: float = 47.2
+    norm_angle: float = 180.0
     theta_sim_to_robot: float = -1.0
 
     limits_path: str = r"data\calibrations\arm limits in x y.xlsx"

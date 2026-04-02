@@ -25,7 +25,77 @@ logger.propagate = True
 
 
 class MecaClass:
+    """Mecademic500 robot class for origami-arm experiments.
+
+    Methods
+    --------
+    connect()
+        Connect to the robot, activate it, home it, apply motion parameters from config, set working/tool frames.
+    home()
+        Send robot to home and wait until homing completes.
+    set_frames(mod=None)
+        Set tool and world reference frames (TRF/WRF) according to experiment mode.
+        "stress_strain" = pole connected, long tip
+        "training"      = clamp tip connected, shift origin to chain origin.
+    move_to_home()
+        Linearly move tip to configured home position [3[mm], 3[deg]]. Currently not in use.
+    move_to_sleep_pos()
+        Move the robot to the configured sleep joint configuration [6[deg]].
+    move_joints(joints)
+        Move the robot in joint space using a 6-DOF joint target.
+    move_pos_w_mid(points, Sprvsr=None)
+        Move to either 3-DOF target ``(x, y, theta_z)`` or 6-DOF robot position. 
+        For 3-DOF targets, sanitize against workspace limits first, using sanitize_target().
+    move_lin_or_pose(target, mod)
+        Execute linear or position move. Try recovery if robot enters error state. Used in move_pos_w_mid()
+    _get_current_pos()
+        Read current robot position and store corresponding 3-DOF in ``self.current_pos``.
+    pts_3_to_6(points)
+        Convert simulation-space target ``(x, y, theta_z)`` into 6-DOF robot position.
+    pts_6_to_3(points)
+        Convert 6-DOF robot position into simulation-space ``(x, y, theta_z)``.
+    sim_to_robot_theta(theta_sim_deg)
+        Convert simulation rotation convention into robot rotation convention.
+    robot_to_sim_theta(theta_robot_deg)
+        Convert robot rotation convention into simulation rotation convention.
+    sanitize_target(points3, Sprvsr)
+        Clamp 3-DOF target to allowed chain and robot workspace limits.
+    clamp_to_circle_xy(x, y, theta_z, Sprvsr, robot_margin=1.0, chain_margin=3.0)
+        Clamp planar target coordinates according to robot reach and effective chain radius.
+        Used inside sanitize_target()
+    disconnect()
+        Disconnect from the robot controller.
+    _recover_robot()
+        Clear motion queue, reset errors, reactivate, and re-home the robot.
+    """
+
+    ip: str                           # robot ip is always "192.168.0.100"
+    robot: object                     # robot object initialized with mecademicpy.robot_initializer 
+    pos_home: tuple[float, float, float, float, float, float]      # 3 positions [mm] and 3 angles [deg] of home
+    joints_sleep: tuple[float, float, float, float, float, float]  # 6 joints angles of sleep position [6*deg]
+    pos_origin: NDArray[np.float64]                                # (x, y, z) [mm] of chain origin. 
+                                                                   # careful for short and long table holders
+    norm_length: float                # normalized length (single link) [mm]. For loss calculation etc. 
+    norm_angle: float                 # normalized angle [deg]. For loss calculation etc.
+    theta_sim_to_robot: float         # orientation of robot and simulation angle. Tip is tilted down so -1.
+    R_robot: float                    # Allowed range of motion for robot tip in XY plane. 
+                                      # Calculated by me as circle with points fit_circle_xy(pts_robot)
+    R_chain: float                    # Allowed range of motion so as to not break chain.
+                                      # Calculate at every step, accounting for tip and total angles.
+    x_TRF: float                      # shift in relative x direction due to chain tip being farther than robot tip
+    y_TRF: float                      # shift in relative y direction, generally zero
+    z_TRF: float                      # shift in height. different when pole or chain clamp are mounted.
+    x_WRF: float                      # shift in x direction also due chain base not in x=0
+    y_WRF: float                      # shift in y direction also due chain base not in y=0
+    current_pos: NDArray[np.float64]  # (x, y, theta) [mm, mm, deg] current position of robot tip
+    pole_rad: float                   # if pole is mounted, account for its radius shifting position of chain tip
+
     def __init__(self, Sprvsr: "SupervisorClass", CFG=None, margin: float = 1.0):
+        """
+        Parameters
+        ----------
+        margin : float, safety margin [mm] subtracted from the chain-based workspace radius
+        """
         if CFG is None:
             from arm_config import CFG as DEFAULT_CFG
             CFG = DEFAULT_CFG
@@ -40,8 +110,6 @@ class MecaClass:
 
         # get origin
         self.pos_home = tuple(CFG.Variabs.pos_home)
-        self.joints_home = tuple(CFG.Variabs.joints_home)
-        self.pos_sleep = tuple(CFG.Variabs.pos_sleep)
         self.joints_sleep = tuple(CFG.Variabs.joints_sleep)
         self.pos_origin = np.asarray(CFG.Variabs.pos_origin, dtype=float)
 
@@ -58,7 +126,17 @@ class MecaClass:
         self.R_chain = (Sprvsr.L - margin) * (Sprvsr.H + 1)
         print(f"Radius allowed due to chain length, = {self.R_chain:.2f}")
 
-    def connect(self):
+        # These will be assigned later under set_targets
+        self.x_TRF = 0.0
+        self.y_TRF = 0.0
+        self.z_TRF = 0.0
+        self.x_WRF = 0.0
+        self.y_WRF = 0.0
+        self.current_pos = np.zeros(3, dtype=float)
+        self.pole_rad = 0.0  # will be set only if mod=="stress_strain"
+
+    def connect(self) -> None:
+        """Connect, activate, home, configure, and initialize robot frames."""
         # try to connect
         try:
             self.robot.Connect(address=self.ip, disconnect_on_exception=False)
@@ -81,7 +159,7 @@ class MecaClass:
         self.robot.WaitActivated()
         logger.info("Robot activated")
   
-        self.home()
+        self.home()  # save as home
 
         # apply hyperparams from config
         logger.info("Applying config parameters")
@@ -90,23 +168,25 @@ class MecaClass:
 
         # set offset due to force sensor and gripper
         self.set_frames()
-
-        # turn configuration - wires do not coil too much
-        # self.robot.SetConfTurn(2)
         
         # log (and display) current position
         logger.info(f'Current arm position: {tuple(self.robot.GetPose())}')
 
-    def home(self):
+    def home(self) -> None:
+        """Home the robot and wait for completion. Used in connect()"""
         logger.info("Homing")
-        # robot_helpers.assert_ready(self.robot)
         self.robot.Home()
         self.robot.WaitHomed()
         logger.info("Robot at home")
 
-    def set_frames(self, mod: Optional[str] = None):
-        # x, y, offsets
+    def set_frames(self, mod: Optional[str] = None) -> None:
+        """Set robot tool/world frames (x, y, z offsets), operation mode specific.
 
+        Parameters
+        ----------
+        mod : "training"      = chain tip clamp mounted on robot tip
+              "stress_strain" = pole is connected to robot tip, sinlge hinge connected to table.
+        """
         # initiate
         self.x_TRF, self.y_TRF, self.z_TRF = 0.0, 0.0, 0.0
         self.x_WRF, self.y_WRF = 0.0, 0.0
@@ -117,32 +197,33 @@ class MecaClass:
         self.z_TRF += load_cell_thick + cable_holder_len
 
         if mod == 'stress_strain':
+            # ------ TRF ------
             # set origin at chain base and tip at chain end
             x_offset_tip = float(self.CFG.Variabs.offset_chain_tip)  # tip, negative sign
             self.x_TRF += - x_offset_tip
+
             # add offset due to pole tip, up to its middle
             pole_len_mid = float(self.CFG.Variabs.pole_len_mid)
             self.z_TRF += pole_len_mid
 
+            # ------ WRF ------
             self.x_WRF += self.pos_origin[0]
             self.y_WRF += self.pos_origin[1]
 
             self.pole_rad = float(self.CFG.Variabs.pole_rad)
         elif mod == 'training':
+            # ------ TRF ------
             # set tip at chain end
             x_offset_tip = float(self.CFG.Variabs.offset_chain_tip)  # tip, negative sign
             self.x_TRF += x_offset_tip
+
             holder_len = float(self.CFG.Variabs.holder_len)
             self.z_TRF += holder_len
-            # set origin at chain base and 
-            # origin = helpers.cfg_get_vec2(self.cfg, "position", "pos_origin")
-            # x_offset_origin = self.cfg.get("position", "pos_origin",
-            #                                fallback=None)[0]  # base, positive sign
-            # y_offset_origin = self.cfg.get("position", "pos_origin", 
-            #                                fallback=None)[1]  # base, positive sign
+
+            # ------ WRF ------
             self.x_WRF += self.pos_origin[0]
             self.y_WRF += self.pos_origin[1]
-        else:
+        else:  # cable holder always positioned
             holder_len = float(self.CFG.Variabs.holder_len)
             self.z_TRF += holder_len
 
@@ -150,79 +231,82 @@ class MecaClass:
         self.robot.SetTrf(self.x_TRF, self.y_TRF, self.z_TRF, 0.0, 0.0, 0.0)
         self.robot.SetWRF(self.x_WRF, self.y_WRF, 0.0, 0.0, 0.0, 0.0)
 
-    def move_to_origin(self):
-        logger.info('Moving the robot to origin')
+    def move_to_home(self) -> None:
+        """Move linearly to configured home pose."""
+        logger.info('Moving the robot to home')
         self.robot.WaitIdle()
         self.robot.MoveLin(*self.pos_home)
         self.robot.WaitIdle()
 
     def move_to_sleep_pos(self) -> None:
+        """Move to the configured sleep joint pose."""
         logger.info('Moving the robot to sleep position')
         self.move_joints(self.joints_sleep)
 
-    def move_joints(self, joints) -> None:
-        if np.size(joints) == 6:
-            target = copy.copy(joints)
-            logger.info('Moving the robot - joints')
-            robot_helpers.assert_ready(self.robot)
-            self.robot.MoveJoints(*target)
-            self.robot.WaitIdle()
-            logger.info('Robot done moving')
-        else:
-            logger.info('poisition given is not x, y, theta_z or 6 DOFs')
+    def move_joints(self, joints: NDArray[np.float64] | tuple[float, ...] | list[float]) -> None:
+        """Move robot to ``joints`` in joint space.
 
-    def move_pos_w_mid(self, points: NDArray, Sprvsr: Optional["SupervisorClass"] = None,
-                       mod="lin") -> None:
+        Parameters
+        ----------
+        joints : array-like, shape (6,), joint-space target.
+        """
+        if np.size(joints) != 6:
+            logger.info("position given is not x, y, theta_z or 6 DOFs")
+            return
+
+        target = copy.copy(joints)
+        logger.info("Moving the robot - joints")
+        robot_helpers.assert_ready(self.robot)
+        self.robot.MoveJoints(*target)
+        self.robot.WaitIdle()
+        logger.info("Robot done moving")
+
+    def move_pos_w_mid(self, points: NDArray[np.float64], Sprvsr: Optional["SupervisorClass"] = None) -> None:
+        """Move to either 3-DOF simulation target or 6-DOF robot target.
+
+        Parameters
+        ----------
+        points : NDArray[np.float64] Either ``(x, y, theta_z)`` [mm, mm, deg] in simulation coordinates
+                                     Or ``(x, y, z, rx, ry, rz)`` [3*mm, 3*deg] in robot position coordinates.
+        
+        Notes:
+        -----
+        Sprvsr SupervisorClass required when ``points`` is 3-DOF, for geometry dependent sanitization
+        """
+        target: tuple[float, float, float, float, float, float]
+
         if np.size(points) == 3:
+            if Sprvsr is None:
+                raise ValueError("Sprvsr must be provided when moving with a 3-DOF target.")
             point_sanit = self.sanitize_target(points, Sprvsr)
-            target = (point_sanit[0], point_sanit[1], self.pos_home[2], self.pos_home[3],
-                      self.pos_home[4], self.sim_to_robot_theta(point_sanit[2]))
+            target = self.pts_3_to_6(point_sanit)
         elif np.size(points) == 6:
-            target = np.array(points, dtype=float).copy()
-            target[-1] = self.sim_to_robot_theta(target[-1])
-            target = tuple(target)
+            target_arr = np.asarray(points, dtype=float).copy()
+            target_arr[-1] = self.sim_to_robot_theta(target_arr[-1])
+            target = tuple(target_arr)
         else:
-            logger.info('poisition given is not x, y, theta_z or 6 DOFs')
+            logger.info("position given is not x, y, theta_z or 6 DOFs")
+            return
 
-        # # correct for too big a twist and move
-        # corr = 0
-        # logger.info(f'before {corr} correction of too big rot')
-        # mid = self.correct_too_big_rot(target)  # None of not too big, array of midway points else
-        # while mid is not None and corr < 4:
-        #     corr +=1
-        #     # self.move_lin_split(mid)
-        #     self.move_lin_or_pose(mid, mod)
-        #     logger.info(f'before {corr} correction of too big rot')
-        #     mid = self.correct_too_big_rot(target)
-        #     if np.size(points) == 3:
-        #         self.current_pos = self.pts_6_to_3(target)
-        #     else:
-        #         self._get_current_pos()
-
-        # if mid is not None:
-        #     logger.error("Too many rotation corrections; continuing to avoid deadlock.")
+        # here previously was "correct for too big a twist"
 
         # move one final time
         # self.move_lin_split(target)
-        self.move_lin_or_pose(target, mod)
-        if np.size(points) == 3:
-            self.current_pos = self.pts_6_to_3(target)
-        else:
-            self._get_current_pos()
+        self.move_lin_or_pose(target, mod='lin')
+        self.current_pos = self.pts_6_to_3(target)
 
-        # save current position as self.current_pos after every movement
-        # self._get_current_pos()
-
-    def move_lin_or_pose(self, target, mod):
-        # logger.info('Moving the robot - linear')
+    def move_lin_or_pose(self, target: tuple[float, float, float, float, float, float],
+                         mod: str) -> None:
+        """Execute either ``MoveLin`` or ``MovePose`` with automatic recovery."""
         robot_helpers.assert_ready(self.robot)
         try:
             if mod == 'lin':
                 self.robot.MoveLin(*target)
             elif mod == 'pose':
                 self.robot.MovePose(*target)
+            else:
+                raise ValueError("mod must be either 'lin' or 'pose'.")
             self.robot.WaitIdle()
-            # logger.info('Robot finished moving')
         except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
                 Exception):
             # Robot likely entered error on invalid move
@@ -233,133 +317,60 @@ class MecaClass:
                 self.robot.MovePose(*target)
             self.robot.WaitIdle()
 
-    def move_lin_split(self, target, mod='lin'):
-        """
-        target = (x, y, z, rx, ry, rz)  # in your units (mm, deg)
-        Strategy:
-          1) spatial MoveLin with *current* orientation (avoids 180° prot)
-          2) rotate-in-place using multiple MoveLin steps < 180°
-        """
-        logger.info("Moving the robot - linear (split spatial + angular)")
-        robot_helpers.assert_ready(self.robot)
-
-        # Current pose and target pose
-        cur = tuple(self.robot.GetPose())
-        tx, ty, tz, trx, try_, trz = target
-
-        # 1) Spatial move: go to xyz but keep current orientation
-        spatial_pose = (tx, ty, tz, cur[3], cur[4], cur[5])
-
-        logger.info(
-            f"MoveLin spatial: xyz=({tx:.2f},{ty:.2f},{tz:.2f}) "
-            f"ori_hold=({cur[3]:.2f},{cur[4]:.2f},{cur[5]:.2f})"
-        )
-        self.move_lin_or_pose(spatial_pose, mod)
-
-        # 2) Rotation-only move(s) at fixed xyz, fixed rx/ry, stepping rz
-        # Decide rotation delta relative to current orientation (after spatial move)
-        # Read pose again in case controller normalized it.
-        cur2 = tuple(self.robot.GetPose())
-        start_rz = cur2[5]
-
-        # Use shortest-path delta to requested rz.
-        # (If you want "continuous >360", you must feed an unwrapped rz here,
-        #  OR maintain your own desired_unwrapped and convert it into a sequence.)
-        delta = robot_helpers.shortest_delta_deg(start_rz, trz)
-
-        # If the shortest delta is small, just do final pose once
-        if abs(delta) < 1e-6:
-            final_pose = (tx, ty, tz, trx, try_, trz)
-            logger.info("No rotation needed; finishing with final orientation.")
-            self.move_lin_or_pose(final_pose, mod)
-            logger.info("Robot finished moving")
-            return
-
-        # Split into safe steps (<180) to avoid MX_ST_BLOCKED_BY_180_DEG_PROT
-        steps = robot_helpers.split_rotation(delta, max_step=160.0)
-
-        logger.info(
-            f"Rotate in place: start_rz={start_rz:.2f}, target_rz={trz:.2f}, "
-            f"delta(shortest)={delta:.2f}, steps={len(steps)}"
-        )
-
-        rz_running = start_rz
-        for i, dstep in enumerate(steps, start=1):
-            rz_running = rz_running + dstep
-            rot_pose = (tx, ty, tz, trx, try_, rz_running)
-            logger.info(f"Rotate step {i}/{len(steps)}: rz={rz_running:.2f} (d={dstep:.2f})")
-            self.move_lin_or_pose(rot_pose, mod)
-
-        # Ensure we land exactly on requested target pose
-        final_pose = (tx, ty, tz, trx, try_, trz)
-        logger.info(f"Finalize pose: rz={trz:.2f}")
-        self.move_lin_or_pose(final_pose, mod)
-
-        logger.info("Robot finished moving")
-
     def _get_current_pos(self) -> None:
-        current_pos_6 = self.robot.GetPose()  # 6 DOFs from robot
+        """Read current robot position and store corresponding 3-DOF simulation state."""
+        current_pos_6 = np.asarray(self.robot.GetPose(), dtype=float)  # 6 DOFs from robot
         theta_z = self.robot_to_sim_theta(current_pos_6[-1])  # robot and simulation angles don't agree
-        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], theta_z])  # 3 DOFs
+        self.current_pos = np.array([current_pos_6[0], current_pos_6[1], theta_z], dtype=float)  # 3 DOFs
 
-    def pts_3_to_6(self, points) -> tuple:
-        return (points[0], points[1], self.pos_home[2], self.pos_home[3], self.pos_home[4], 
-                self.sim_to_robot_theta(points[2]))
+    def pts_3_to_6(self, points: NDArray[np.float64] | tuple[float, ...] | list[float]
+                   ) -> tuple[float, float, float, float, float, float]:
+        """Convert ``(x, y, theta_z)`` [mm, mm, deg] into robot position [3*mm, 3*deg] using configured home"""
+        pts = np.asarray(points, dtype=float)
+        return (pts[0], pts[1], self.pos_home[2], self.pos_home[3], self.pos_home[4], 
+                self.sim_to_robot_theta(pts[2]))
         
-    def pts_6_to_3(self, points) -> NDArray:
-        return np.array([points[0], points[1], points[-1]])
+    def pts_6_to_3(self, points: NDArray[np.float64] | tuple[float, ...] | list[float]
+                   ) -> NDArray[np.float64]:
+        """Convert robot position [3*mm, 3*deg] into simulation position ``(x, y, theta_z)`` [mm, mm, deg]."""
+        pts = np.asarray(points, dtype=float)
+        return np.array([pts[0], pts[1], self.robot_to_sim_theta(pts[-1])], dtype=float)
 
     def sim_to_robot_theta(self, theta_sim_deg: float) -> float:
+        """Convert simulation rotation convention into robot rotation convention."""
         return self.theta_sim_to_robot * float(theta_sim_deg)  # invert CCW->CW
 
     def robot_to_sim_theta(self, theta_robot_deg: float) -> float:
+        """Convert robot rotation convention into simulation rotation convention."""
         return self.theta_sim_to_robot * float(theta_robot_deg)  # invert CW->CCW
 
-    def sanitize_target(self, points3, Sprvsr: "SupervisorClass"):
+    def sanitize_target(self, points3: NDArray[np.float64] | tuple[float, ...] | list[float],
+                        Sprvsr: "SupervisorClass") -> NDArray[np.float64]:
+        """Clamp a 3-DOF target to allowed workspace limits."""
         x, y, theta_z = map(float, points3)
         x, y = self.clamp_to_circle_xy(x, y, theta_z, Sprvsr)
         return np.array([x, y, theta_z])
 
-    def correct_too_big_rot(self, target):
-        # correct for too big a twist
-        if hasattr(self, "current_pos"):
-            starting_pos = self.pts_3_to_6(self.current_pos)
-        else:    
-            starting_pos = tuple(self.robot.GetPose())
-        delta = np.asarray(target) - np.asarray(starting_pos)
-        print(f'target={target}')
-        print(f'starting_pos={starting_pos}')
-
-        rot_idx = np.array([5], dtype=int)  # Rotational indices in Mecademic pose: rx, ry, rz
-        over = np.abs(delta[rot_idx]) > 180.0
-        if np.any(over):
-            # Intermediate pose:
-            # - x,y,z go directly to target
-            # - rotations that are "over" go halfway; others go directly to target
-            mid = np.asarray(target)
-            for i, is_over in zip(rot_idx, over):
-                if is_over:
-                    mid[i] = starting_pos[i] + 0.5 * delta[i]
-                    logger.info('Large rotation detected. Splitting MoveLin into two steps. '
-                                f'start={starting_pos} mid={tuple(mid)} target={target}')
-            return mid
-        else:
-            logger.info('no correction for too big rot')
-            return None
-
-    def clamp_to_circle_xy(self, x, y, theta_z, Sprvsr: "SupervisorClass",
-                           robot_margin: float = 1.0, chain_margin: float = 3.0):
-        """
+    def clamp_to_circle_xy(self, x: float, y: float, theta_z: float, Sprvsr: "SupervisorClass",
+                           robot_margin: float = 1.0, chain_margin: float = 3.0) -> tuple[float, float]:
+        """Clamp planar coordinates to robot and chain workspace constraints.
         If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
+
+        Parameters
+        ----------
+        x, y, theta_z : floats. Requested planar coordinates in simulation frame [mm], [mm], [deg].
+        robot_margin : float, Safety margin from robot reach boundary [mm].
+        chain_margin : float, Safety margin from effective chain radius [mm].
+
+        Returns
+        -------
+        tuple[float, float]. Clamped planar coordinates.
         """
         # account for previous total angle to calculate current total angle, in [deg]
-        if hasattr(Sprvsr, "total_angle"):
-            prev = Sprvsr.total_angle
-        else:
-            prev = 0.0
+        prev_total_angle = float(getattr(Sprvsr, "total_angle", 0.0))
 
         # calculate current total angle
-        Sprvsr.total_angle = helpers.get_total_angle(Sprvsr.L, np.array([x, y]), prev)  # [deg]
+        Sprvsr.total_angle = helpers.get_total_angle(Sprvsr.L, np.array([x, y]), prev_total_angle)  # [deg]
 
         # effective radius of chain
         R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)
@@ -371,16 +382,16 @@ class MecaClass:
 
         x2, x3, y2, y3 = None, None, None, None
 
+        # ------ chain constraint ------
         if r_chain >= (R_eff - chain_margin):
             scale = (R_eff - chain_margin) / r_chain
-            # x2 = self.pos_origin[0] + (x-self.pos_origin[0]) * scale
-            # y2 = self.pos_origin[1] + (y-self.pos_origin[1]) * scale
             x2 = x * scale
             y2 = y * scale
             print(f'clamped from x={x},y={y} to x={x2},y={y2} due to chain revolusions')
             print(f'since r_chain={r_chain}')
             print(f'but maximal R_eff of chain={R_eff}')
 
+        # ------ robot radius constraints ------
         if r_robot >= (self.R_robot - robot_margin):
             scale = (self.R_robot - robot_margin) / r_robot
             print('scale =', scale)
@@ -392,15 +403,17 @@ class MecaClass:
             print(f'since r_robot={r_robot}')
             print(f'but maximal robot margins={self.R_robot}')
 
+        # clamp to minimal radius detected
         x_clamp = np.nanmin(np.array([x, x2, x3], dtype=float))
         y_clamp = np.nanmin(np.array([y, y2, y3], dtype=float))
-
         return float(x_clamp), float(y_clamp)
 
     def disconnect(self) -> None:
+        """Disconnect from the robot controller."""
         self.robot.Disconnect()
 
     def _recover_robot(self) -> None:
+        """Recover robot from a controller fault and return it to a homed state."""
         logger.warning("Recovering robot from fault...")
 
         # Clear queue just in case, then reset and resume
@@ -423,3 +436,84 @@ class MecaClass:
         self.robot.WaitHomed()
 
         logger.info("Robot recovered and ready")
+
+
+# ----------------------------
+# NOT IN USE
+# ----------------------------
+
+# def move_lin_split(self, target: tuple[float, float, float, float, float, float], mod: str = "lin") -> None:
+#     """Execute a split move to avoid >180 deg rotation protection.
+
+#     Parameters
+#     ----------
+#     target : tuple[float, float, float, float, float, float]
+#         Target robot pose ``(x, y, z, rx, ry, rz)``.
+#     mod : {"lin", "pose"}, default "lin"
+#         Motion primitive used for each segment.
+#     """
+#     logger.info("Moving the robot - linear (split spatial + angular)")
+#     robot_helpers.assert_ready(self.robot)
+
+#     cur = tuple(self.robot.GetPose())
+#     tx, ty, tz, trx, try_, trz = target
+
+#     spatial_pose = (tx, ty, tz, cur[3], cur[4], cur[5])
+#     logger.info("MoveLin spatial: xyz=(%.2f,%.2f,%.2f) ori_hold=(%.2f,%.2f,%.2f)", 
+#                 tx, ty, tz, cur[3], cur[4], cur[5])
+#     self.move_lin_or_pose(spatial_pose, mod)
+
+#     cur2 = tuple(self.robot.GetPose())
+#     start_rz = cur2[5]
+#     delta = robot_helpers.shortest_delta_deg(start_rz, trz)
+
+#     if abs(delta) < 1e-6:
+#         final_pose = (tx, ty, tz, trx, try_, trz)
+#         logger.info("No rotation needed; finishing with final orientation.")
+#         self.move_lin_or_pose(final_pose, mod)
+#         logger.info("Robot finished moving")
+#         return
+
+#     steps = robot_helpers.split_rotation(delta, max_step=160.0)
+#     logger.info("Rotate in place: start_rz=%.2f, target_rz=%.2f, delta(shortest)=%.2f, steps=%d",
+#                 start_rz, trz, delta, len(steps))
+
+#     rz_running = start_rz
+#     for idx, dstep in enumerate(steps, start=1):
+#         rz_running += dstep
+#         rot_pose = (tx, ty, tz, trx, try_, rz_running)
+#         logger.info("Rotate step %d/%d: rz=%.2f (d=%.2f)", idx, len(steps), rz_running, dstep)
+#         self.move_lin_or_pose(rot_pose, mod)
+
+#     final_pose = (tx, ty, tz, trx, try_, trz)
+#     logger.info("Finalize pose: rz=%.2f", trz)
+#     self.move_lin_or_pose(final_pose, mod)
+#     logger.info("Robot finished moving")
+
+
+# def correct_too_big_rot(self, target: tuple[float, float, float, 
+#                                             float, float, float]) -> Optional[NDArray[np.float64]]:
+#     """Build intermediate position when the ``rz`` jump exceeds 180 deg."""
+#     if hasattr(self, "current_pos"):
+#         starting_pos = np.asarray(self.pts_3_to_6(self.current_pos), dtype=float)
+#     else:
+#         starting_pos = np.asarray(self.robot.GetPose(), dtype=float)
+
+#     target_arr = np.asarray(target, dtype=float)
+#     delta = target_arr - starting_pos
+#     print(f"target={target}")
+#     print(f"starting_pos={tuple(starting_pos)}")
+
+#     rot_idx = np.array([5], dtype=int)
+#     over = np.abs(delta[rot_idx]) > 180.0
+#     if not np.any(over):
+#         logger.info("no correction for too big rot")
+#         return None
+
+#     mid = target_arr.copy()
+#     for idx, is_over in zip(rot_idx, over):
+#         if is_over:
+#             mid[idx] = starting_pos[idx] + 0.5 * delta[idx]
+#             logger.info("Large rotation detected. Splitting MoveLin into two steps. start=%s mid=%s target=%s",
+#                         tuple(starting_pos), tuple(mid), target)
+#     return mid
