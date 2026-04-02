@@ -146,6 +146,7 @@ class ForsentekClass:
         the previous implementation declared a tuple return type but returned
         nothing. This method now returns the acquired data and time vector.
         """
+        # ------- set duration and timeout ------
         duration = self.T if T is None else float(T)
         n_samples = int(duration * self.fs)
         if n_samples <= 0:
@@ -158,20 +159,14 @@ class ForsentekClass:
         except nidaqmx.errors.DaqError:
             pass
 
-        self.task.timing.cfg_samp_clk_timing(
-            rate=self.fs,
-            sample_mode=AcquisitionType.FINITE,
-            samps_per_chan=n_samples,
-        )
-
+        self.task.timing.cfg_samp_clk_timing(rate=self.fs, sample_mode=AcquisitionType.FINITE,
+                                             samps_per_chan=n_samples)
         self.t = np.arange(n_samples, dtype=float) / self.fs
         self.task.start()
 
+        # ------ measure ------
         try:
-            raw_data = self.task.read(
-                number_of_samples_per_channel=n_samples,
-                timeout=read_timeout,
-            )
+            raw_data = self.task.read(number_of_samples_per_channel=n_samples, timeout=read_timeout)
             self.voltage_data = np.asarray(raw_data, dtype=float).T
         finally:
             try:
@@ -179,6 +174,7 @@ class ForsentekClass:
             except nidaqmx.errors.DaqError:
                 pass
 
+        # return force or voltage as dictated by user
         if mode == "F":
             self.force_data = self.force_from_voltage(self.voltage_data)
             return self.force_data.copy(), self.t.copy()
@@ -188,68 +184,58 @@ class ForsentekClass:
         raise ValueError("mode must be either 'F' or 'V'.")
 
     def calibrate_daily(self, V0_from_file: bool = True) -> None:
-        """Perform daily calibration of the force sensor.
+        """Measure the offset of linear voltage-to-force relation. 
+        The slope is determined in experiments.calibrate_forces_all_axes(). This is just for offset.
+
 
         Parameters
         ----------
-        V0_from_file : bool, default=True
-            If ``True``, load the zero-force voltage offset from file. If
-            ``False``, measure a fresh offset and save it.
+        V0_from_file : bool, True  = load zero-force voltage offset from file. 
+                             False = measure and save offset.
 
         Notes
         -----
-        Bug fix applied here:
-        the original code assumed calibration slope/intercept output ordering
-        and silently ignored one fitted parameter. This refactor preserves the
-        original effective behavior, namely using ``force_fit_params[1]`` as
-        ``F_a``, but this indexing should be verified against the exact return
-        contract of :func:`helpers.fit_force_vs_voltage`.
+        run when sensor is free, not connected to chain or anything else
         """
+        # ------ path to import calibration slope from ------
         self.calibration_path = str(self.CFG.Snsr.calibration_path)
 
-        voltages_arr, forces_arr, stds_arr = file_helpers.load_calibration_csv(
-            self.calibration_path,
-        )
-        force_fit_params = helpers.fit_force_vs_voltage(
-            voltages_arr,
-            forces_arr,
-            stds_arr,
-        )
+        # ------ import voltage-force relation slope ------
+        voltages_arr, forces_arr, stds_arr = file_helpers.load_calibration_csv(self.calibration_path)
+        
+        # ------ fit measured slope, print parameters and plot ------
+        force_fit_params = helpers.fit_force_vs_voltage(voltages_arr, forces_arr, stds_arr)
         print("force_fit_params=", force_fit_params)
-        plot_func.calibration_forces(
-            voltages_arr,
-            forces_arr,
-            stds_arr,
-            force_fit_params,
-        )
+        plot_func.calibration_forces(voltages_arr, forces_arr, stds_arr, force_fit_params)
 
+        # ------ offset from file ------
         self.F_a = force_fit_params[1]
         print("make sure robot is in home position=")
 
+        # ------ load offset from file, if provided ------
         if V0_from_file:
             self.V0_path = str(self.CFG.Snsr.V0_path)
             self.V0 = np.asarray(file_helpers.load_V0(self.V0_path), dtype=float)
             print(f"Loaded V0 from {self.V0_path}: {self.V0}")
             return
 
-        self.V0_path = "V0_latest.npz"
-        voltage_data, _ = self.measure(2.0, mode="V")
+        # ------ measure offset, if offset file not provided ------
+        self.V0_path = "V0_latest.npz"  # default name for offset file
+        voltage_data, _ = self.measure(2.0, mode="V")  # measure voltage for 2[s]
         self.V0 = np.mean(voltage_data, axis=0)
         file_helpers.save_V0(self.V0_path, self.V0)
         print(f"Saved V0 to {self.V0_path}")
 
     def mean_force(self, force_in_t: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Compute the mean local-frame force across time.
+        """Take mean local-frame force across time.
 
         Parameters
         ----------
-        force_in_t : NDArray[np.float64]
-            Time series of force samples, typically shape ``(N, 3)``.
+        force_in_t : NDArray[np.float64]. Time series of force samples, shape ``(T*fs, 3)``.
 
         Returns
         -------
-        NDArray[np.float64]
-            Mean local-frame force, shape ``(3,)``.
+        NDArray[np.float64]. Mean local-frame force, shape ``(3,)``.
         """
         self.local_F = np.mean(np.asarray(force_in_t, dtype=float), axis=0)
         return self.local_F.copy()
