@@ -53,21 +53,24 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
     """
     m.set_frames(mod="training")
 
-    # ------ load positions from file if path provided ------
+    # ------ load positions from file if path provided and generate tip positions ------
     x_y_theta_vec = _build_sweep_positions(x_range=x_range, y_range=y_range, theta_range=theta_range,
                                            N=N, path=path)
     n_points = int(x_y_theta_vec.shape[0])
 
+    # ------ sweep and measure forces ------
+    # empty force vector along sweep trajectory
     F_vec = np.zeros((n_points, 2), dtype=float)
-
     for i, pos in enumerate(x_y_theta_vec):
+        # move arm
         print(f"moving robot to pos={pos}")
         m.move_pos_w_mid(pos, Sprvsr)
 
+        # record force
         print("recording force")
         force_in_t, _ = Snsr.measure()
-        Sprvsr.global_force(Snsr, m, force_in_t=force_in_t)
-        F_vec[i, :] = np.array([Sprvsr.Fx, Sprvsr.Fy], dtype=float)
+        Sprvsr.global_force(Snsr, m)  # rotate to global frame
+        F_vec[i, :] = np.array([Sprvsr.Fx, Sprvsr.Fy], dtype=float)  # insert in vector
 
     print("finished logging force measurements")
     return x_y_theta_vec, F_vec
