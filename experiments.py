@@ -76,100 +76,114 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
     return x_y_theta_vec, F_vec
 
 
-def stress_strain(
-    m: "MecaClass",
-    Snsr: "ForsentekClass",
-    theta_max: float,
-    theta_ss: float,
-    N: int,
-    y_step: float,
-    x_step: float,
-    connect_hinge: bool = True,
-    reverse: bool = True,
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-    """Run a two-branch stress-strain protocol for a single hinge.
+def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int,
+                  y_step: float, x_step: float, reverse: bool = True) -> tuple[NDArray[np.float64], 
+                                                                               NDArray[np.float64],
+                                                                               NDArray[np.float64]]:
+    """Run two-sided-sweep stress-strain measurement for a single hinge.
 
     Protocol
     --------
-    1. Optional hinge-connection setup.
+    1. translate behind arm
     2. Sweep from ``-theta_ss`` to ``+theta_max`` and back to ``+theta_ss``.
-    3. Translate behind the arm.
-    4. Sweep from ``+theta_ss`` to ``-theta_max`` and back to ``-theta_ss``.
+    3. Translate behind arm in the other direction.
+    4 Sweep from ``+theta_ss`` to ``-theta_max`` and back to ``-theta_ss``.
 
     Parameters
     ----------
-    m : MecaClass
-        Robot controller.
-    Snsr : ForsentekClass
-        Force sensor interface.
-    theta_max : float
-        Maximal sweep angle [deg].
-    theta_ss : float
-        Small preload / settling angle [deg].
-    N : int
-        Number of angle samples per sweep.
-    y_step : float
-        Lateral bypass translation [mm].
-    x_step : float
-        Backward bypass translation [mm].
-    connect_hinge : bool, default True
-        If True, move above the hinge and wait for manual connection.
-    reverse : bool, default True
-        If True, flip the sign of the whole protocol.
+    theta_max : float. Maximal sweep angle [deg].
+    theta_ss  : float. Approximate steady state angle, from which to start measurement [deg].
+    N         : int. Number of angle samples per sweep. Two sweeps are incorporated here.
+    y_step    : float. Lateral bypass translation [mm].
+    x_step    : float. Backward bypass translation [mm].
+    reverse   : bool. True = flip the sign of the whole protocol.
 
     Returns
     -------
-    tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
-        Concatenated commanded angles and measured local-frame forces:
-        ``thetas_all``, ``Fx_all``, ``Fy_all``.
+    Concatenated commanded angles and measured local-frame forces: ``thetas_all`` [deg], ``Fx_all``, ``Fy_all`` [N]
+
+    Notes
+    -----
+    - The pole should be connected to the robot, not the clamp.
+    - Hinge is at center, robot performs circular motion with constant radius from hinge.
     """
+    # set frames for stress-strain experiment
     m.set_frames(mod="stress_strain")
 
-    if connect_hinge:
-        _connect_hinge_protocol(m)
-
+    # acquire initial robot position.
     init_pos_6 = np.asarray(m.robot.GetPose(), dtype=float)
     x0, y0, z0, rx0, ry0, _rz0 = init_pos_6
 
+    # all experiment done in reverse
     if reverse:
         y_step = -y_step
         x_step = -x_step
         theta_max = -theta_max
         theta_ss = -theta_ss
 
-    def run_sweep_at_xy(theta_end: float, theta_ss_local: float, x: float, y: float
-                        ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    def run_sweep_at_xy(theta_end: float, theta_ss_local: float) -> tuple[NDArray[np.float64], NDArray[np.float64],
+                                                                          NDArray[np.float64]]:
+        """Run sweep from -theta_ss_local -> theta_end -> +theta_ss_local
+
+        Protocol
+        --------
+        1. Move robot incrementally
+        2. Measure forces. Relevant force is in x axis.
+
+        Parameters
+        ----------
+        theta_end      : float. Maximal sweep angle [deg].
+        theta_ss_local : float. Approximate steady state angle, from which to start measurement [deg].
+        x              : float. Number of angle samples per sweep.
+        y              : float. Lateral bypass translation [mm].
+
+        Returns
+        -------
+        Concatenated commanded angles and measured local-frame forces: ``thetas`` [deg], ``Fx``, ``Fy_all`` [N]
+        """
+        # insert thetas and initiate force vectors
         thetas = _theta_sweep(theta_end=theta_end, theta_ss=theta_ss_local, N=N)
         Fx = np.zeros(thetas.size, dtype=float)
         Fy = np.zeros(thetas.size, dtype=float)
 
+        # move, measure, insert into vectors
         for i, th in enumerate(thetas):
-            target6 = np.array([x, y, z0, rx0, ry0, th], dtype=float)
+            # move
+            target6 = np.array([x0, y0, z0, rx0, ry0, th], dtype=float)
             m.move_pos_w_mid(target6, Sprvsr=None, mod="lin")
 
+            # measure
             force_in_t, _ = Snsr.measure()
+
+            # insert
             Fx[i] = float(np.mean(force_in_t[:, 0]))
             Fy[i] = float(np.mean(force_in_t[:, 1]))
 
         return thetas, Fx, Fy
 
+    # translate behind arm 1st time
     _bypass_arm(m, x_mid=x0 - x_step, y_mid=y0 - y_step, z=z0, rx=rx0, ry=ry0, x_return=x0, y_return=y0)
 
-    th1, Fx1, Fy1 = run_sweep_at_xy(theta_end=+theta_max, theta_ss_local=+theta_ss, x=x0, y=y0)
+    # sweep -theta_ss_local -> theta_end -> +theta_ss_local
+    th1, Fx1, Fy1 = run_sweep_at_xy(theta_end=+theta_max, theta_ss_local=+theta_ss)
 
+    # translate behind arm 2nd time
     m.move_pos_w_mid(np.array([x0, y0, z0, rx0, ry0, 0.0], dtype=float), Sprvsr=None, mod="lin")
-
     _bypass_arm(m, x_mid=x0 - x_step, y_mid=y0 + y_step, z=z0, rx=rx0, ry=ry0, x_return=x0, y_return=y0)
 
-    th2, Fx2, Fy2 = run_sweep_at_xy(theta_end=-theta_max, theta_ss_local=-theta_ss, x=x0, y=y0)
+    # sweep theta_ss_local -> -theta_end -> -theta_ss_local
+    th2, Fx2, Fy2 = run_sweep_at_xy(theta_end=-theta_max, theta_ss_local=-theta_ss)
 
+    # return to rest position
     m.robot.MoveLin(x0, y0, z0, rx0, ry0, 0.0)
     m.robot.WaitIdle()
 
+    # convert angles due to pole-chain contact being off-center
     delta_theta = np.rad2deg(np.arctan(m.pole_rad / (-m.x_TRF)))
     th1 = th1 + delta_theta
     th2 = th2 - delta_theta
 
+    # assemble into full vectors
     thetas_all = np.concatenate([th1, th2])
     Fx_all = np.concatenate([Fx1, Fx2])
     Fy_all = np.concatenate([Fy1, Fy2])
@@ -345,7 +359,20 @@ def _connect_hinge_protocol(m: "MecaClass") -> None:
 
 
 def _theta_sweep(theta_end: float, theta_ss: float, N: int) -> NDArray[np.float64]:
-    """Build a sweep ``-theta_ss -> theta_end -> +theta_ss`` without duplicating endpoints."""
+    """Build angle vector ``-theta_ss -> theta_end -> +theta_ss``
+
+    Parameters
+    ----------
+    theta_end : float. Highest angle, hinge almost reaching contact [deg]
+    theta_ss  : float. Approximated rest (steady-state) angle [deg]
+    N         : int. Number of angles to measure through. 
+
+    Notes
+    -----
+    - No duplicated endpoints.
+    - The N points are not evenly spaces in angle space. The way from theta_end to theta_ss has smaller angle step.
+    """
+
     if N < 2:
         return np.array([0.0], dtype=float)
 
@@ -357,17 +384,20 @@ def _theta_sweep(theta_end: float, theta_ss: float, N: int) -> NDArray[np.float6
     return np.concatenate([up, down])
 
 
-def _bypass_arm(
-    m: "MecaClass",
-    x_mid: float,
-    y_mid: float,
-    z: float,
-    rx: float,
-    ry: float,
-    x_return: float,
-    y_return: float,
-) -> None:
-    """Perform the short linear bypass move used between angular sweeps."""
+def _bypass_arm(m: "MecaClass", x_mid: float, y_mid: float, z: float, rx: float,
+                ry: float, x_return: float, y_return: float) -> None:
+    """Perform short linear bypass move used between angular sweeps.
+
+    Parameters
+    ----------
+    x_mid, y_mid       : floats. Far x, y positions [mm] so the pole is detached from hinge and goes opposite way
+    z, rx, ry          : floats. z position [mm] and x and y angles [deg]. Constant all the way.
+    x_return, y_return : float. x and y positions [mm] to return to at other side of hinge facet
+
+    Notes
+    -----
+    - No force measurement. This step is done just to switch side of pole on hinge facet
+    """
     m.robot.MoveLin(x_mid, y_mid, z, rx, ry, 0.0)
     m.robot.WaitIdle()
     m.robot.MoveLin(x_return, y_return, z, rx, ry, 0.0)

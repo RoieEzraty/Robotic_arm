@@ -138,7 +138,7 @@ class ForsentekClass:
         -------
         tuple[NDArray[np.float64], NDArray[np.float64]]
             Measured data and corresponding time vector. The returned data is
-            ``force_data`` for ``mode == "F"`` and ``voltage_data`` otherwise.
+            ``force_data`` [N] for ``mode == "F"`` and ``voltage_data`` [V] otherwise.
 
         Notes
         -----
