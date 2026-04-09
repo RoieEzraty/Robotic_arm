@@ -1,55 +1,95 @@
 from __future__ import annotations
-import copy
+
 import csv
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Optional, Union
+
 import numpy as np
 import pandas as pd
-
-from pathlib import Path
-from datetime import datetime
-from typing import Optional, TYPE_CHECKING, Callable, Union, Iterable, Mapping
 from numpy.typing import NDArray
 
 
-def load_pos_force(path: str):
-    rows = []
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+def load_pos_force(path: str | Path) -> list[dict[str, object]]:
+    """Load position-force dataset rows from CSV.
 
+    Supported schemas
+    -----------------
+    1. Measurement/training dataset:
+       columns compatible with
+       ``x_tip, y_tip, tip_angle_deg, F_x, F_y``
+       or equivalent aliases.
+
+       Returns rows of the form:
+       ``{"pos": (x, y, theta_deg), "force": (Fx, Fy), "t_unix": ...}``
+
+    2. Predetermined-training dataset:
+       columns including
+       ``upd_x_tip, upd_y_tip, upd_tip_angle, Fx_meas, Fy_meas, Fx_des, Fy_des``.
+
+       Returns rows of the form:
+       ``{"pos_meas": ..., "force_meas": ..., "pos_update": ..., "force_des": ..., "t_unix": ...}``
+
+    Parameters
+    ----------
+    path : str | Path. Path to CSV file.
+
+    Returns
+    -------
+    list[dict[str, object]]. Parsed dataset rows.
+    """
+    # initialize rows
+    rows: list[dict[str, object]] = []
+
+    # go over file
+    with Path(path).open(newline="", encoding="utf-8") as file_obj:
+        # read file
+        reader = csv.DictReader(file_obj)
+
+        if reader.fieldnames is None:
+            return rows
+
+        # booleans. These are optional data in file
         has_time = "t_unix" in reader.fieldnames
         has_deg = "tip_angle_deg" in reader.fieldnames
         has_rad = "tip_angle_rad" in reader.fieldnames
         has_update = "upd_x_tip" in reader.fieldnames
 
-        for r in reader:
-            x = _get_first_in_file(r, ["pos_x", "x_tip", "Px"], name="x")
-            y = _get_first_in_file(r, ["pos_y", "y_tip", "Py"], name="y")
-            # ----- angle handling -----
-            if has_deg and r["tip_angle_deg"] != "":
-                theta_deg = float(r["tip_angle_deg"])
-            elif has_rad and r["tip_angle_rad"] != "":
-                theta_deg = np.rad2deg(float(r["tip_angle_rad"]))
+        for record in reader:
+            x = _get_first_in_file(record, ["pos_x", "x_tip", "Px"], name="x")
+            y = _get_first_in_file(record, ["pos_y", "y_tip", "Py"], name="y")
+
+            if has_deg and record["tip_angle_deg"] != "":
+                theta_deg = float(record["tip_angle_deg"])
+            elif has_rad and record["tip_angle_rad"] != "":
+                theta_deg = float(np.rad2deg(float(record["tip_angle_rad"])))
             else:
                 raise ValueError(
-                    "File must contain either 'tip_angle_deg' or 'tip_angle_rad'"
+                    "File must contain either 'tip_angle_deg' or 'tip_angle_rad'.",
                 )
 
             if has_update:
-                row = {"pos_meas": (x, y, theta_deg),
-                       "force_meas": (float(r["Fx_meas"]), float(r["Fy_meas"])),
-                       "pos_update": (float(r["upd_x_tip"]), float(r["upd_y_tip"]), 
-                                      float(r["upd_tip_angle"])),
-                       "force_des": (float(r["Fx_des"]), float(r["Fy_des"]))}
-
+                row: dict[str, object] = {
+                    "pos_meas": (x, y, theta_deg),
+                    "force_meas": (float(record["Fx_meas"]), float(record["Fy_meas"])),
+                    "pos_update": (
+                        float(record["upd_x_tip"]),
+                        float(record["upd_y_tip"]),
+                        float(record["upd_tip_angle"]),
+                    ),
+                    "force_des": (float(record["Fx_des"]), float(record["Fy_des"])),
+                }
             else:
-                Fx = _get_first_in_file(r, ["force_x", "F_x", "Fx"], name="Fx")
-                Fy = _get_first_in_file(r, ["force_y", "F_y", "Fy"], name="Fy")
-                row = {"pos": (x, y, theta_deg),
-                       "force": (Fx, Fy)}
+                Fx = _get_first_in_file(record, ["force_x", "F_x", "Fx"], name="Fx")
+                Fy = _get_first_in_file(record, ["force_y", "F_y", "Fy"], name="Fy")
+                row = {
+                    "pos": (x, y, theta_deg),
+                    "force": (Fx, Fy),
+                }
 
-            # ----- optional time -----
-            if has_time and r["t_unix"] != "":
-                row["t_unix"] = float(r["t_unix"])
+            if has_time and record["t_unix"] != "":
+                row["t_unix"] = float(record["t_unix"])
             else:
                 row["t_unix"] = None
 
@@ -58,325 +98,463 @@ def load_pos_force(path: str):
     return rows
 
 
-def write_supervisor_dataset(
-    x_y_theta: NDArray[np.float64],  # shape (N, 3) with columns [x, y, theta_z_deg]
-    F_vec: NDArray[np.float64],  # shape (N, 2) with columns [Fx, Fy]
-    out_path: Optional[str | Path] = None,
-    append: bool = False,
-) -> Path:
+def write_supervisor_dataset(x_y_theta: NDArray[np.float64], F_vec: NDArray[np.float64], 
+                             out_path: Optional[str | Path] = None, append: bool = False) -> Path:
+    """Write supervisor dataset CSV compatible with :func:`load_pos_force`.
+
+    Parameters
+    ----------
+    x_y_theta : NDArray[np.float64]. Tip positions of shape ``(N, 3)`` with columns ``[x, y, theta_z_deg]``.
+    F_vec     : NDArray[np.float64]. Measured forces of shape ``(N, 2)`` with columns ``[Fx, Fy]``.
+    out_path  : str | Path | None, optional. Output CSV path. If omitted, creates timestamped file under ``data/``.
+    append    : bool, optional. If ``True``, append rows to an existing file.
+
+    Returns
+    -------
+    Path to written CSV file.
+
+    Notes
+    -----
+    Columns written are: ``t_unix, x_tip, y_tip, tip_angle_deg, F_x, F_y``
     """
-    Build a dataset CSV compatible with file_helpers.load_pos_force().
+    # initializations and cautions
+    positions = np.asarray(x_y_theta, dtype=float)
+    forces = np.asarray(F_vec, dtype=float)
 
-    CSV columns written:
-        t_unix,pos_x,pos_y,pos_z,force_x,force_y
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError(f"x_y_theta must have shape (N, 3). Got {positions.shape}.")
+    if forces.ndim != 2 or forces.shape[1] != 2:
+        raise ValueError(f"F_vec must have shape (N, 2). Got {forces.shape}.")
+    if positions.shape[0] != forces.shape[0]:
+        raise ValueError(f"x_y_theta and F_vec must have the same number of rows. "
+                         f"Got {positions.shape[0]} and {forces.shape[0]}.")
 
-    """
-    x_y_theta = np.asarray(x_y_theta, dtype=float)  # [mm, mm, deg]
-    if x_y_theta.ndim != 2 or x_y_theta.shape[1] != 3:
-        raise ValueError(f"x_y_theta must be (N,3). Got {x_y_theta.shape}")
-
-    # default output path
+    # create output file
     if out_path is None:
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         Path("data").mkdir(parents=True, exist_ok=True)
-        out_path = Path("data") / f"dataset_{ts}.csv"
+        out_file = Path("data") / f"dataset_{timestamp}.csv"
     else:
-        out_path = Path(out_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_file = Path(out_path)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
 
     mode = "a" if append else "w"
-    write_header = (mode == "w") or (not out_path.exists())
+    write_header = (mode == "w") or (not out_file.exists())
 
-    with out_path.open(mode, newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+    # insert into file
+    with out_file.open(mode, newline="", encoding="utf-8") as file_obj:
+        writer = csv.writer(file_obj)
 
+        # header
         if write_header:
             writer.writerow(["t_unix", "x_tip", "y_tip", "tip_angle_deg", "F_x", "F_y"])
 
-        for i in range(x_y_theta.shape[0]):
-            x, y, theta_z_deg = (float(x_y_theta[i, 0]),
-                                 float(x_y_theta[i, 1]),
-                                 float(x_y_theta[i, 2]))
+        # insert data
+        for i in range(positions.shape[0]):
+            writer.writerow([time.time(), float(positions[i, 0]), float(positions[i, 1]), float(positions[i, 2]),
+                             float(forces[i, 0]), float(forces[i, 1])])
+            file_obj.flush()
 
-            Fx, Fy = float(F_vec[i, 0]), float(F_vec[i, 1])
-
-            # ---- write row ----
-            t_unix = time.time()
-            writer.writerow([t_unix, x, y, theta_z_deg, Fx, Fy])
-            f.flush()
-
-    return out_path
+    return out_file
 
 
-def save_calibration_csv(path, voltages_arr, forces_arr, stds_arr):
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+def save_calibration_csv(
+    path: str | Path,
+    voltages_arr: NDArray[np.float64],
+    forces_arr: NDArray[np.float64],
+    stds_arr: NDArray[np.float64],
+) -> None:
+    """Save tri-axial calibration data to CSV.
+
+    Parameters
+    ----------
+    path : str | Path
+        Output CSV path.
+    voltages_arr : NDArray[np.float64]
+        Voltage means of shape ``(N, 3)``.
+    forces_arr : NDArray[np.float64]
+        Applied forces of shape ``(N, 3)``.
+    stds_arr : NDArray[np.float64]
+        Voltage standard deviations of shape ``(N, 3)``.
+    """
+    voltages = np.asarray(voltages_arr, dtype=float)
+    forces = np.asarray(forces_arr, dtype=float)
+    stds = np.asarray(stds_arr, dtype=float)
+
+    if voltages.shape != forces.shape or voltages.shape != stds.shape:
+        raise ValueError(
+            "voltages_arr, forces_arr, and stds_arr must all have the same shape.",
+        )
+    if voltages.ndim != 2 or voltages.shape[1] != 3:
+        raise ValueError(f"Expected arrays of shape (N, 3). Got {voltages.shape}.")
+
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with out_path.open("w", newline="", encoding="utf-8") as file_obj:
+        writer = csv.writer(file_obj)
         writer.writerow([
             "Vx_V", "Vy_V", "Vz_V",
             "Fx_N", "Fy_N", "Fz_N",
-            "stdVx_V", "stdVy_V", "stdVz_V"
+            "stdVx_V", "stdVy_V", "stdVz_V",
         ])
-        for i in range(voltages_arr.shape[0]):
+        for i in range(voltages.shape[0]):
             writer.writerow([
-                voltages_arr[i, 0], voltages_arr[i, 1], voltages_arr[i, 2],
-                forces_arr[i, 0], forces_arr[i, 1], forces_arr[i, 2],
-                stds_arr[i, 0], stds_arr[i, 1], stds_arr[i, 2],
+                float(voltages[i, 0]), float(voltages[i, 1]), float(voltages[i, 2]),
+                float(forces[i, 0]), float(forces[i, 1]), float(forces[i, 2]),
+                float(stds[i, 0]), float(stds[i, 1]), float(stds[i, 2]),
             ])
 
 
-def load_calibration_csv(path):
-    V, F, S = [], [], []
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+def load_calibration_csv(
+    path: str | Path,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """Load tri-axial calibration data from CSV.
+
+    Parameters
+    ----------
+    path : str | Path
+        Calibration CSV path.
+
+    Returns
+    -------
+    tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
+        Voltage means, forces, and voltage standard deviations, each of shape ``(N, 3)``.
+    """
+    voltages: list[list[float]] = []
+    forces: list[list[float]] = []
+    stds: list[list[float]] = []
+
+    with Path(path).open(newline="", encoding="utf-8") as file_obj:
+        reader = csv.DictReader(file_obj)
         for row in reader:
-            V.append([float(row["Vx_V"]), float(row["Vy_V"]), float(row["Vz_V"])])
-            F.append([float(row["Fx_N"]), float(row["Fy_N"]), float(row["Fz_N"])])
-            S.append([float(row["stdVx_V"]), float(row["stdVy_V"]), float(row["stdVz_V"])])
+            voltages.append([float(row["Vx_V"]), float(row["Vy_V"]), float(row["Vz_V"])])
+            forces.append([float(row["Fx_N"]), float(row["Fy_N"]), float(row["Fz_N"])])
+            stds.append([float(row["stdVx_V"]), float(row["stdVy_V"]), float(row["stdVz_V"])])
 
-    return np.asarray(V, dtype=float), np.asarray(F, dtype=float), np.asarray(S, dtype=float)
+    return (
+        np.asarray(voltages, dtype=float),
+        np.asarray(forces, dtype=float),
+        np.asarray(stds, dtype=float),
+    )
 
 
-def save_V0(path, V0):
+def save_V0(path: str | Path, V0: NDArray[np.float64] | list[float] | tuple[float, ...]) -> None:
+    """Save zero-force voltage offset array to ``.npz``.
+
+    Parameters
+    ----------
+    path : str | Path
+        Output file path.
+    V0 : array-like
+        Zero-force voltage offset.
     """
-    Save offset of voltage of today
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(out_path, V0=np.asarray(V0, dtype=float))
+
+
+def load_V0(path: str | Path) -> NDArray[np.float64]:
+    """Load zero-force voltage offset array from ``.npz``.
+
+    Parameters
+    ----------
+    path : str | Path
+        Input file path.
+
+    Returns
+    -------
+    NDArray[np.float64]
+        Loaded voltage-offset vector.
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(path, V0=np.asarray(V0, dtype=float))
-
-
-def load_V0(path):
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"V0 file not found: {path}")
-    data = np.load(path)
-    return data["V0"]
+    in_path = Path(path)
+    if not in_path.exists():
+        raise FileNotFoundError(f"V0 file not found: {in_path}")
+    data = np.load(in_path)
+    return np.asarray(data["V0"], dtype=float)
 
 
 def load_perimeter_xy(
-    xlsx_path: str,
-    sheet_name=0,          # 0 = first sheet
+    xlsx_path: str | Path,
+    sheet_name: int | str = 0,
     x_col: str = "x",
     y_col: str = "y",
-) -> np.ndarray:
-    """
-    Loads perimeter points from an Excel file with columns named 'x' and 'y'.
-    Returns: (N,2) float array [[x1,y1],...]
+) -> NDArray[np.float64]:
+    """Load planar perimeter points from Excel.
+
+    Parameters
+    ----------
+    xlsx_path : str | Path
+        Excel file path.
+    sheet_name : int | str, optional
+        Excel sheet index or name.
+    x_col, y_col : str, optional
+        Column names for x and y values. A case-insensitive fallback is applied.
+
+    Returns
+    -------
+    NDArray[np.float64]
+        Array of shape ``(N, 2)`` containing perimeter points.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing or fewer than 3 valid points exist.
     """
     df = pd.read_excel(xlsx_path, sheet_name=sheet_name)
 
-    # Ensure required columns exist (case-insensitive fallback)
-    cols_lower = {c.lower(): c for c in df.columns}
+    cols_lower = {str(c).lower(): c for c in df.columns}
     if x_col not in df.columns and x_col.lower() in cols_lower:
-        x_col = cols_lower[x_col.lower()]
+        x_col = str(cols_lower[x_col.lower()])
     if y_col not in df.columns and y_col.lower() in cols_lower:
-        y_col = cols_lower[y_col.lower()]
+        y_col = str(cols_lower[y_col.lower()])
 
     if x_col not in df.columns or y_col not in df.columns:
         raise ValueError(f"Expected columns '{x_col}' and '{y_col}'. Found: {list(df.columns)}")
 
-    # Keep only numeric x,y rows
-    pts = df[[x_col, y_col]].apply(pd.to_numeric, errors="coerce").dropna()
+    points = df[[x_col, y_col]].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(points) < 3:
+        raise ValueError(f"Need at least 3 perimeter points to fit a circle. Got {len(points)}.")
 
-    if len(pts) < 3:
-        raise ValueError(f"Need at least 3 perimeter points to fit a circle. Got {len(pts)}.")
-
-    return pts.to_numpy(dtype=float)
+    return points.to_numpy(dtype=float)
 
 
-def export_training_csv(path_csv: str, Sprvsr, T=None):
+def export_training_csv(path_csv: str | Path, Sprvsr: object, T: Optional[int] = None) -> None:
+    """Export predetermined-training data from supervisor buffers.
+
+    Parameters
+    ----------
+    path_csv : str | Path
+        Output CSV path.
+    Sprvsr : object
+        Supervisor-like object exposing ``pos_in_t``, ``pos_update_in_t``,
+        ``loss_in_t``, ``loss_MSE_in_t``, ``F_in_t``, and ``desired_F_in_t``.
+    T : int | None, optional
+        Number of rows to export. If omitted, uses ``Sprvsr.T``.
+
+    Notes
+    -----
+    This CSV is intended to be re-loadable by :func:`load_pos_force`.
+    Therefore the update-angle column is written as ``upd_tip_angle``.
     """
-    Save one row per training step t.
-    """
-    path_csv = Path(path_csv)
-    path_csv.parent.mkdir(parents=True, exist_ok=True)
+    out_path = Path(path_csv)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if T is None:
         T = int(Sprvsr.T)
 
-    # ---- header ----
     header = ["t", "x_tip", "y_tip", "tip_angle_deg"]
-
-    header += ["upd_x_tip", "upd_y_tip", "upd_tip_angle_deg"]
-
-    # loss columns (Sprvsr.loss_in_t is (T, loss_size))
+    header += ["upd_x_tip", "upd_y_tip", "upd_tip_angle"]
     header += ["loss_x", "loss_y", "loss_MSE"]
-
-    # measured
     header += ["F_x_meas", "F_y_meas"]
-
-    # desired
     header += ["F_x_des", "F_y_des"]
 
-    # ---- write ----
-    with open(path_csv, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(header)
+    with out_path.open("w", newline="", encoding="utf-8") as file_obj:
+        writer = csv.writer(file_obj)
+        writer.writerow(header)
 
         for t in range(T):
-            row = [t, float(Sprvsr.pos_in_t[t, 0]), float(Sprvsr.pos_in_t[t, 1]),
-                   float(Sprvsr.pos_in_t[t, 2])]
-
-            row += [float(Sprvsr.pos_update_in_t[t, 0]), 
-                    float(Sprvsr.pos_update_in_t[t, 1]),
-                    float(Sprvsr.pos_update_in_t[t, 2])]
-
+            row = [
+                t,
+                float(Sprvsr.pos_in_t[t, 0]),
+                float(Sprvsr.pos_in_t[t, 1]),
+                float(Sprvsr.pos_in_t[t, 2]),
+            ]
+            row += [
+                float(Sprvsr.pos_update_in_t[t, 0]),
+                float(Sprvsr.pos_update_in_t[t, 1]),
+                float(Sprvsr.pos_update_in_t[t, 2]),
+            ]
             row += [float(x) for x in Sprvsr.loss_in_t[t, :]]
-
             row += [float(Sprvsr.loss_MSE_in_t[t])]
-
-            # measured force
-            row += [float(Sprvsr.F_in_t[t, 0]),
-                    float(Sprvsr.F_in_t[t, 1])]
-
-            # desired force
-            row += [float(Sprvsr.desired_F_in_t[t, 0]),
-                    float(Sprvsr.desired_F_in_t[t, 1])]
-
-            w.writerow(row)
+            row += [float(Sprvsr.F_in_t[t, 0]), float(Sprvsr.F_in_t[t, 1])]
+            row += [float(Sprvsr.desired_F_in_t[t, 0]), float(Sprvsr.desired_F_in_t[t, 1])]
+            writer.writerow(row)
 
 
-def save_stress_strain(out_path, thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y):
-    out_path = Path(out_path)
-    mode = "w"
-    write_header = (mode == "w") or (not out_path.exists())
+def save_stress_strain(
+    out_path: str | Path,
+    thetas_vec: NDArray[np.float64],
+    Fx_vec: NDArray[np.float64],
+    Fy_vec: NDArray[np.float64],
+    torque_x: NDArray[np.float64],
+    torque_y: NDArray[np.float64],
+) -> None:
+    """Save stress-strain measurement arrays to CSV.
 
-    with out_path.open(mode, newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-
-        if write_header:
-            writer.writerow(["theta", "F_x", "F_y", "torque_x", "torque_y"])
-
-        for i in range(thetas_vec.shape[0]):
-            writer.writerow([thetas_vec[i], Fx_vec[i], Fy_vec[i], 
-                             torque_x[i], torque_y[i]])
-            f.flush()
-
-
-def load_stress_strain(path: str, file_type: str = 'csv'):
+    Parameters
+    ----------
+    out_path : str | Path
+        Output CSV path.
+    thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y : NDArray[np.float64]
+        Per-sample arrays of equal length.
     """
-    
-    inputs:
-    path      - 
-    file_type - 'csv' - file (created by my stress strain code in main.ipynb)
-                'txt' - my translation of Leon's shims experiments
+    thetas = np.asarray(thetas_vec, dtype=float)
+    Fx = np.asarray(Fx_vec, dtype=float)
+    Fy = np.asarray(Fy_vec, dtype=float)
+    tau_x = np.asarray(torque_x, dtype=float)
+    tau_y = np.asarray(torque_y, dtype=float)
 
+    n = thetas.shape[0]
+    if not all(arr.shape == (n,) for arr in (Fx, Fy, tau_x, tau_y)):
+        raise ValueError("All input arrays must be 1D and have the same length.")
+
+    out_file = Path(out_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with out_file.open("w", newline="", encoding="utf-8") as file_obj:
+        writer = csv.writer(file_obj)
+        writer.writerow(["theta", "F_x", "F_y", "torque_x", "torque_y"])
+
+        for i in range(n):
+            writer.writerow([thetas[i], Fx[i], Fy[i], tau_x[i], tau_y[i]])
+            file_obj.flush()
+
+
+def load_stress_strain(
+    path: str | Path,
+    file_type: str = "csv",
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
+    """Load stress-strain data from CSV or translated TXT format.
+
+    Parameters
+    ----------
+    path : str | Path
+        Input data path.
+    file_type : {"csv", "txt"}
+        ``"csv"`` for files saved by :func:`save_stress_strain`,
+        ``"txt"`` for the translated shim-measurement text format.
+
+    Returns
+    -------
+    tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64],
+          NDArray[np.float64], NDArray[np.float64]]
+        ``thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y``.
     """
-    if file_type == 'csv':
+    if file_type == "csv":
         df = pd.read_csv(path)
-
         thetas_vec = df["theta"].to_numpy(dtype=float)
         Fx_vec = df["F_x"].to_numpy(dtype=float)
         Fy_vec = df["F_y"].to_numpy(dtype=float)
         torque_x = df["torque_x"].to_numpy(dtype=float)
         torque_y = df["torque_y"].to_numpy(dtype=float)
-    elif file_type == 'txt':
+    elif file_type == "txt":
         data = np.loadtxt(path, delimiter=",")
-        
-        thetas_vec = data[:, 0]
-        torque_x = data[:, 1]
-        
-        # dump other sizes as zeros
-        torque_y = np.zeros(np.shape(torque_x))
-        Fx_vec = np.zeros(np.shape(torque_x))
-        Fy_vec = np.zeros(np.shape(torque_x))
+        thetas_vec = np.asarray(data[:, 0], dtype=float)
+        torque_x = np.asarray(data[:, 1], dtype=float)
+        torque_y = np.zeros_like(torque_x)
+        Fx_vec = np.zeros_like(torque_x)
+        Fy_vec = np.zeros_like(torque_x)
+    else:
+        raise ValueError("file_type must be either 'csv' or 'txt'.")
 
     return thetas_vec, Fx_vec, Fy_vec, torque_x, torque_y
 
 
-# ---------------------------------------------------------------
-# Build functions from file
-# ---------------------------------------------------------------
-def build_torque_from_file(path: str, *, angles_in_degrees: bool = True):
-    """
-    Load torque–angle measurements from file and construct JAX-compatible interpolation functions for torque and stiffness.
-    Stiffness ``k = dτ/dθ``
+def build_torque_from_file(
+    path: str | Path,
+    *,
+    angles_in_degrees: bool = True,
+) -> Callable[[NDArray[np.float64] | float], NDArray[np.float64] | float]:
+    """Build a clamped torque-vs-angle interpolation function from file.
 
     Parameters
     ----------
-    path              - str, path to the text/CSV file containing two columns: angle and torque.
-    contact           - bool, If True, extend torque function outside measured range to represent contact-induced divergence.
-    angles_in_degrees - bool, If True, convert angles from degrees to radians.
-    savgol_window     - Optional[int], window length for Savitzky–Golay smoothing of the stiffness curve. Must be odd integer > 2.
-    contact_scale     - float, contact scaling factor relative to maximal measured torque.
+    path : str | Path
+        Path to a two-column text or CSV file containing angle and torque.
+    angles_in_degrees : bool, optional
+        Present for API compatibility. The current implementation leaves the
+        input angles unchanged and assumes the stored units already match the
+        queries used by the caller.
 
     Returns
     -------
-    theta_grid      - jnp.ndarray, shape (N,), sorted vector of angles (radians).
-    torque_grid     - jnp.ndarray, shape (N,), torque samples over theta.
-    k_grid          - jnp.ndarray, shape (N,), local stiffness as numeric derivative of torque w.r.t. theta.
-    torque_of_theta - callable, JAX function theta -> torque interpolation including diverging forces at contact.
-    k_of_theta      - callable, JAX function theta -> stiffness interpolation.
+    Callable
+        Function mapping angle query values to linearly interpolated torque
+        values, clamped to the measured angle range.
 
     Notes
     -----
-    - Negative stiffness values clipped to small positive value (``1e-3``).
-    - Contact occurs outside the measured range.
+    - Duplicate angle samples are collapsed by keeping the first occurrence.
+    - Some known historical files require torque sign inversion and are handled
+      explicitly to preserve current project behavior.
     """
-    # ------ load as numpy, sort, unique------
     try:
-        data = np.loadtxt(path)                # shape (N, 2)
+        data = np.loadtxt(path)
     except ValueError:
-        data = np.loadtxt(path, delimiter=',')
-    theta = data[:, 0]
-    tau = data[:, 1]
+        data = np.loadtxt(path, delimiter=",")
 
-    if path in {"single_hinge_files/Roie_metal_singleMylar_short.csv", 
-                "single_hinge_files/Stress_Strain_steel_1myl1tp_short.csv", 
-                "single_hinge_files/Stress_Strain_1myl1tp_otherEnd_short.csv"}:  # flip axes
+    theta = np.asarray(data[:, 0], dtype=float)
+    tau = np.asarray(data[:, 1], dtype=float)
+
+    if str(path) in {
+        "single_hinge_files/Roie_metal_singleMylar_short.csv",
+        "single_hinge_files/Stress_Strain_steel_1myl1tp_short.csv",
+        "single_hinge_files/Stress_Strain_1myl1tp_otherEnd_short.csv",
+    }:
         tau = -tau
 
-    # # degrees -> radians if needed
-    # if angles_in_degrees:
-    #     theta = np.deg2rad(theta)
-
-    # sort & unique (interp requires monotonic x)
     order = np.argsort(theta)
     theta = theta[order]
     tau = tau[order]
-    # collapse duplicates (if any)
-    theta_u, idx = np.unique(theta, return_index=True)
-    tau_u = tau[idx]
 
-    # ------ arrays ------
-    theta_grid = np.asarray(theta_u, dtype=np.float32)
-    torque_grid = np.asarray(tau_u, dtype=np.float32)
+    theta_unique, idx = np.unique(theta, return_index=True)
+    tau_unique = tau[idx]
 
-    # ----- linear interpolators ------
-    def torque_of_theta(theta_query: np.ndarray) -> np.ndarray:
-        # masks for outside vs inside range
-        th = _clamp(theta_query, theta_grid[0], theta_grid[-1])
-        tau = np.interp(th, theta_grid, torque_grid)  # torque
-        return tau
+    theta_grid = np.asarray(theta_unique, dtype=np.float32)
+    torque_grid = np.asarray(tau_unique, dtype=np.float32)
 
-    def _clamp(x, xmin, xmax):
-        return np.clip(x, xmin, xmax)
+    def torque_of_theta(
+        theta_query: NDArray[np.float64] | float,
+    ) -> NDArray[np.float64] | float:
+        theta_query_arr = np.asarray(theta_query, dtype=float)
+        theta_clamped = np.clip(theta_query_arr, theta_grid[0], theta_grid[-1])
+        torque_interp = np.interp(theta_clamped, theta_grid, torque_grid)
+
+        if np.ndim(theta_query) == 0:
+            return float(torque_interp)
+        return np.asarray(torque_interp, dtype=float)
 
     return torque_of_theta
 
 
-# ---------------------------------------------------------------
-# Simple functions
-# ---------------------------------------------------------------
-def _get_first_in_file(r: Mapping[str, Union[str, float, int, None]], keys: Iterable[str], *, name: str = "",
-                       allow_missing: bool = False) -> Optional[float]:
-    """
-    Extract first valid scalar value from a csv, using list of candidate keys. If no valid key is found: returns `None`
+def _get_first_in_file(
+    r: Mapping[str, Union[str, float, int, None]],
+    keys: Iterable[str],
+    *,
+    name: str = "",
+    allow_missing: bool = False,
+) -> Optional[float]:
+    """Extract the first valid scalar value from a row-like mapping.
+    Used in load_pos_force()
 
     Parameters
     ----------
-    r             - Mapping[str, str | float | int | None]. Record-like object (e.g. CSV row dictionary).
-    keys          - Iterable[str]. Ordered candidate keys to search for.
-    name          - str, optional.  Human-readable field name used only for error reporting.
-    allow_missing - bool, optional. If True, return None when no key is found.
+    r : Mapping[str, str | float | int | None]
+        Record-like object, typically a CSV row dictionary.
+    keys : Iterable[str]
+        Ordered candidate keys to search for.
+    name : str, optional
+        Human-readable field name used only in error reporting.
+    allow_missing : bool, optional
+        If ``True``, return ``None`` when no valid key is found.
 
     Returns
     -------
-    value - float or None. First successfully parsed scalar value.
+    float | None
+        First successfully parsed scalar value.
     """
-    for k in keys:
-        if k in r and r[k] not in ("", None):
-            return float(r[k])
+    for key in keys:
+        if key in r and r[key] not in ("", None):
+            return float(r[key])
+
     if allow_missing:
         return None
-    raise KeyError(f"None of {keys} found for {name}")
+
+    raise KeyError(f"None of {list(keys)} found for {name}")
