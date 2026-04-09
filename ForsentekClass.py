@@ -201,9 +201,11 @@ class ForsentekClass:
         self.calibration_path = str(self.CFG.Snsr.calibration_path)
 
         # ------ import voltage-force relation slope ------
+        #
         voltages_arr, forces_arr, stds_arr = file_helpers.load_calibration_csv(self.calibration_path)
         
-        # ------ fit measured slope, print parameters and plot ------
+        # ------ fit measured slope, print parameters and plot ------\
+        # F = a*V + b separately for x/y/z, NDArray(2,3)
         force_fit_params = helpers.fit_force_vs_voltage(voltages_arr, forces_arr, stds_arr)
         print("force_fit_params=", force_fit_params)
         plot_func.calibration_forces(voltages_arr, forces_arr, stds_arr, force_fit_params)

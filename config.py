@@ -40,9 +40,7 @@ class VariabsConfig:
 class SprvsrConfig:
     experiment: str = "training"
     dataset_type: str = "from file"
-    dataset_path: str = (
-        r"data\measurements\Feb18\0001to1000_2\dataset.csv"
-    )
+    dataset_path: str = (r"data\measurements\Feb18\0001to1000_2\dataset.csv")
 
     # sweep
     sweep_T: int = 12
