@@ -42,6 +42,13 @@ class SprvsrConfig:
     dataset_type: str = "from file"
     dataset_path: str = (r"data\measurements\Feb18\0001to1000_2\dataset.csv")
 
+    # # BEASTAL update tip values
+    # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
+    update_scheme: str = 'loss_diff'  # difference of x and y loss components
+
+    # normalize_step: bool = True
+    normalize_step: bool = False
+
     # sweep
     sweep_T: int = 12
     x_range: int = 100

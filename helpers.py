@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from numpy import array, zeros
 from numpy.polynomial import polynomial as poly
 from numpy.typing import NDArray
 
@@ -196,6 +197,65 @@ def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, 
     return float(max(0.0, (R - margin) - shrink))
 
 
+def coil(angle: float, revolutions: float = 1.5, units='deg'):
+    """
+    return boolean whether the tip coiled too much
+
+    Parameters:
+    -----------
+    angle       - float, angle during update state after corrections 
+    revolutions - float, how many 2pi revolution allowed before angle is considered as too much coiled
+
+    Returns:
+    --------
+    boolean - True=coiled too much, correct inside SupervisorClass.calc_update
+    """
+    if units == 'deg':
+        return np.abs(np.deg2rad(angle)) > revolutions * 2*np.pi
+    else:
+        return np.abs(angle) > revolutions * 2*np.pi
+
+
+def swept_last_edge_crosses_first_edge(tip_prev: np.ndarray, angle_prev: float, tip_new: np.ndarray,
+                                       angle_new: float, L: float, *, n_samples: int = 101, eps: float = 1e-12,
+                                       include_endpoints: bool = False) -> bool:
+    """
+    Return whether the quadrilateral swept by the last edge crosses the first edge.
+
+    The swept quadrilateral is taken as:
+        before_prev -> tip_prev -> tip_new -> before_new
+
+    The first edge is:
+        [ [0,0], [L,0] ]
+
+    Parameters
+    ----------
+    before_prev, tip_prev, before_new, tip_new
+        Endpoints of the old and new last edge, each shape (2,).
+    L
+        Edge length of the first segment.
+    eps
+        Numerical tolerance.
+    include_endpoints
+        Whether mere touching counts as crossing.
+
+    Returns
+    -------
+    bool
+        True if the first edge intersects the swept quadrilateral.
+    """
+    first_a = np.array([0.0, 0.0], dtype=float)
+    first_b = np.array([float(L), 0.0], dtype=float)
+    for s in np.linspace(0.0, 1.0, n_samples):
+        tip_s = (1.0 - s) * tip_prev + s * tip_new
+        angle_s = (1.0 - s) * angle_prev + s * angle_new
+        before_s = _get_before_tip(tip_s, angle_s, L)
+
+        if _segments_intersect(first_a, first_b, before_s, tip_s, eps=eps, include_endpoints=include_endpoints):
+            return True
+    return False
+
+
 def rotate_force_frame(force_in_t: NDArray[np.float64], tip_angle: float,) -> tuple[NDArray[np.float64],
                                                                                     NDArray[np.float64]]:
     """Rotate measured 2D force traces into  global frame.
@@ -241,3 +301,110 @@ def TRF_to_robot_tip(x: float, y: float, theta_z: float, tx: float) -> tuple[flo
     dx = float(np.cos(np.deg2rad(theta_z)) * tx)
     dy = float(np.sin(np.deg2rad(theta_z)) * tx)
     return float(x - dx), float(y - dy)
+
+
+# -----------------------------------
+# Geometrical helpers inside helpers
+# -----------------------------------
+def _get_before_tip(tip_pos: NDArray, tip_angle: float, L: float, *, dtype=None):
+    """
+    Return coordinates of the node that is one before the tip given the position of the last node and tip angle
+
+    Notes:
+    ------
+    Works with numpy (xp=np) or jax.numpy (xp=jnp).
+
+    Parameters:
+    -----------
+    tip_pos   - np.array(float), (2,), position of last node
+    tip_angle - float
+    L         - float, edge/facet length [mm]
+
+    Returns:
+    --------
+    np.array(float), (2,), position of before the last node
+    """
+    if dtype is None:
+        tip_pos = array(tip_pos).reshape((2,))
+    else:
+        tip_pos = array(tip_pos, dtype=dtype).reshape((2,))
+
+    dx = L * np.cos(tip_angle)
+    dy = L * np.sin(tip_angle)
+
+    if dtype is None:
+        return tip_pos - array([dx, dy])
+    return tip_pos - array([dx, dy], dtype=dtype)
+
+
+def _segments_intersect(a: NDArray[np.float64], b: NDArray[np.float64], c: NDArray[np.float64],
+                        d: NDArray[np.float64], *, eps: float = 1e-12, include_endpoints: bool = True) -> bool:
+    """
+    Return whether the closed segments [a,b] and [c,d] intersect.
+
+    Parameters
+    ----------
+    a, b, c, d
+        Segment endpoints, each shape (2,).
+    eps
+        Numerical tolerance.
+    include_endpoints
+        Whether touching at endpoints / collinear touching counts as intersection.
+
+    Returns
+    -------
+    bool
+        True if the segments intersect.
+    """
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    c = np.asarray(c, dtype=float)
+    d = np.asarray(d, dtype=float)
+
+    o1 = _orient(a, b, c)
+    o2 = _orient(a, b, d)
+    o3 = _orient(c, d, a)
+    o4 = _orient(c, d, b)
+
+    # Proper crossing
+    if ((o1 > eps and o2 < -eps) or (o1 < -eps and o2 > eps)) and \
+       ((o3 > eps and o4 < -eps) or (o3 < -eps and o4 > eps)):
+        return True
+
+    if not include_endpoints:
+        return False
+
+    # Touching / collinear cases
+    if abs(o1) <= eps and _on_segment(a, c, b, eps=eps):
+        return True
+    if abs(o2) <= eps and _on_segment(a, d, b, eps=eps):
+        return True
+    if abs(o3) <= eps and _on_segment(c, a, d, eps=eps):
+        return True
+    if abs(o4) <= eps and _on_segment(c, b, d, eps=eps):
+        return True
+
+    return False
+
+
+def _orient(p: NDArray[np.float64], q: NDArray[np.float64], r: NDArray[np.float64]) -> float:
+    """
+    Signed 2D orientation / cross product of pq with pr.
+
+    Returns
+    -------
+    float
+        > 0 for counter-clockwise turn,
+        < 0 for clockwise turn,
+        = 0 for collinear points.
+    """
+    return float((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]))
+
+
+def _on_segment(p: NDArray[np.float64], q: NDArray[np.float64], r: NDArray[np.float64],
+                *, eps: float = 1e-12) -> bool:
+    """
+    Return whether q lies on the closed segment [p, r].
+    """
+    return (min(p[0], r[0]) - eps <= q[0] <= max(p[0], r[0]) + eps and
+            min(p[1], r[1]) - eps <= q[1] <= max(p[1], r[1]) + eps)

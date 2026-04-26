@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import numpy as np
+from numpy import array, zeros
+from numpy.typing import NDArray
+
+import copy
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import numpy as np
-from numpy.typing import NDArray
-
-import experiments
-import file_helpers
-import helpers
-import plot_func
+import experiments, file_helpers, helpers, plot_func
 
 if TYPE_CHECKING:
     from arm_config import Config
@@ -64,8 +64,9 @@ class SupervisorClass:
     Fy: float                                     # current sensed force in global x direction [mN]
     alpha: float                                  # learning rate for training update rule
     rand_key_dataset: float                       # random seed to initiate dataset, for reproducibility
+    normalize_step: bool                          # boolean whether to normalize step size if non-vanishing or not
 
-    def __init__(self, CFG: Optional["Config"] = None) -> None:
+    def __init__(self, CFG: Optional["Config"] = None, supress_prints: bool = True) -> None:
         """
         Parameters
         ----------
@@ -80,7 +81,9 @@ class SupervisorClass:
         self.experiment = str(CFG.Sprvsr.experiment)
         self.dataset_type = str(CFG.Sprvsr.dataset_type)
         self.dataset_path = str(CFG.Sprvsr.dataset_path)
+        self.update_scheme = str(CFG.Sprvsr.update_scheme)
 
+        # orientation
         self.origin_rel_to_sim = np.asarray(CFG.Sprvsr.origin_rel_to_sim, dtype=float)
 
         # experiment-specific parameters
@@ -100,13 +103,25 @@ class SupervisorClass:
         else:
             raise ValueError(f"Unsupported experiment mode: {self.experiment}")
 
+        # tip motion parameters
+        self.normalize_step = CFG.Sprvsr.normalize_step
+        self.invert_delta_tip = False
+
+        # tip restart bookkeeping for origin-cut handling
+        self.origin_cut_restart_count = 0  # consecutive origin-cut restarts
+        self.coil_count = 0  # consecutive restarts due to tip coiling
+        self.last_restart_reason: Optional[str] = None  # None | "origin_cut" | "coil"
+        self.origin_restart_base_frac = 0.6  # base vertical offset in units of L
+        self.origin_restart_step_frac = 0.6  # extra offset per repeated cut, in units of L
+
         # chain and force
         self.L = float(CFG.Sprvsr.L)
         self.H = int(CFG.Sprvsr.H)
         self.convert_F = float(CFG.Sprvsr.convert_F)
+        self.norm_pos = self.L
+        self.norm_angle = float(np.pi)
 
-        # initialize empty parameters
-        # in t
+        # initialize empty parameters in t
         self.F_in_t = np.zeros((self.T, 2), dtype=float)
         self.desired_F_in_t = np.zeros((self.T, 2), dtype=float)
         self.pos_update_in_t = np.zeros((self.T, 3), dtype=float)
@@ -115,13 +130,17 @@ class SupervisorClass:
         self.loss_norm_in_t = np.zeros((self.T, 2), dtype=float)
         self.loss_MSE_in_t = np.zeros(self.T, dtype=float)
         self.pos_in_t = np.zeros((self.T, 3), dtype=float)
-        # instantaneous
+        
+        # initialize instantaneous parameters
         self.pos = np.zeros(3, dtype=float)
         self.loss = np.zeros(2, dtype=float)
         self.loss_norm = np.zeros(2, dtype=float)
         self.loss_MSE = 0.0
         self.Fx = 0.0
         self.Fy = 0.0
+
+        # prints during run if True
+        self.supress_prints = supress_prints
 
     def init_dataset(self, dataset_path: str = "dataset.csv", out_path: str = "dataset.csv",
                      measure_des: bool = False, m: Optional["MecaClass"] = None,
@@ -157,12 +176,12 @@ class SupervisorClass:
             pos_force_rows = file_helpers.load_pos_force(dataset_path)
 
         if self.experiment == "training":
-            pos_base = np.array([row["pos"] for row in pos_force_rows], dtype=float)
-            force_base = np.array([row["force"] for row in pos_force_rows], dtype=float)
+            pos_base = array([row["pos"] for row in pos_force_rows], dtype=float)
+            force_base = array([row["force"] for row in pos_force_rows], dtype=float)
         elif self.experiment == "predetermined training":
-            pos_base = np.array([row["pos_meas"] for row in pos_force_rows], dtype=float)
-            pos_update = np.array([row["pos_update"] for row in pos_force_rows], dtype=float)
-            force_base = np.array([row["force_meas"] for row in pos_force_rows], dtype=float)
+            pos_base = array([row["pos_meas"] for row in pos_force_rows], dtype=float)
+            pos_update = array([row["pos_update"] for row in pos_force_rows], dtype=float)
+            force_base = array([row["force_meas"] for row in pos_force_rows], dtype=float)
         else:
             raise ValueError("init_dataset currently supports only training modes.")
 
@@ -233,9 +252,9 @@ class SupervisorClass:
         self.Fx = float(np.mean(Fx_global_in_t))
         self.Fy = float(np.mean(Fy_global_in_t))
         if t is not None:
-            self.F_in_t[t, :] = np.array([self.Fx, self.Fy], dtype=float)
+            self.F_in_t[t, :] = array([self.Fx, self.Fy], dtype=float)
 
-        return np.array([self.Fx, self.Fy], dtype=float)
+        return array([self.Fx, self.Fy], dtype=float)
 
     def calc_loss(self, t: int, norm_force: float) -> None:
         """Compute and store loss for step ``t``. 
@@ -255,53 +274,159 @@ class SupervisorClass:
         self.loss_norm_in_t[t, :] = self.loss_norm
         self.loss_MSE_in_t[t] = self.loss_MSE
 
-    def calc_tip_update(self, m: "MecaClass", t: int, correct_for_total_angle: bool = True) -> None:
+    def calc_tip_update(self, m: "MecaClass", t: int, 
+                        correct_for_total_angle: Optional[bool] = True,
+                        correct_for_coil: Optional[bool] = True,
+                        correct_for_cut_origin: Optional[bool] = True,
+                        correct_for_update_force: Optional[bool] = True) -> None:
         """Calculate commanded tip position that buckles chain, out of loss value.
 
         Parameters
         ----------
         t                      : Supervisor step index.
-        correct_for_total_angle: If ``True``, add commanded tip angle to accumulated
-                                 chain angle estimated by :func:`helpers.get_total_angle`.
-
-        Notes
-        -----
-        Bug fix applied here:
-        the previous implementation computed ``tip_pos`` before updating
-        ``self.pos_update_in_t[t, :]``, so the total-angle correction used a
-        stale position. The correction now uses the freshly updated tip
-        position.
+        current_tip_pos        : ndarrat(float) (2,) during measurement, used only in radial_one_to_one update function
+        prev_tip_update_pos    : ndarrat(float) (2,) previous update tip pos, for inserting new top into vectors in time
+        current_tip_angle      : float, during measurement, used only in radial_one_to_one update function
+        prev_tip_update_angle  : float, previous update tip pos, for inserting new top into vectors in time
+        correct_for_total_angle, correct_for_coil, correct_for_cut_origin : booleans, whether to correct tip pos due to:
+                                                                            addition to simulation total angle,
+                                                                            coiled tip (reset tip values from dataset)
+                                                                            tip cuts origin (as above)
         """
-        if t == 0:
-            prev_pos_update = self.pos_in_t[0].copy()
+        # if t == 0:
+        #     prev_pos_update = self.pos_in_t[0].copy()
+        # else:
+        #     prev_pos_update = self.pos_update_in_t[t - 1, :].copy()
+
+        # # calculate update
+        # sgn_x = float(np.sign(prev_pos_update[0]))
+        # delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
+        # delta_y_update = -self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
+        # delta_theta_update = -self.alpha * self.loss_norm[1] * m.norm_angle
+
+        # self.pos_update_in_t[t, :] = prev_pos_update + delta_update
+        # print("pos_update_in_t[t, :] before correct for tot angle = ", self.pos_update_in_t[t, :])
+
+        # # correct for total angle
+        # if correct_for_total_angle:
+        #     if t == 0:
+        #         prev_total_angle = 0.0
+        #     else:
+        #         prev_total_angle = float(self.total_angle_update_in_t[t - 1])
+
+        #     tip_pos = self.pos_update_in_t[t, :2].copy()
+        #     self.total_angle = helpers.get_total_angle(self.L, tip_pos, prev_total_angle)
+        #     delta_total_angle = self.total_angle - prev_total_angle
+        #     self.pos_update_in_t[t, 2] += delta_total_angle
+        #     self.total_angle_update_in_t[t] = self.total_angle
+        #     print("current total_angle", self.total_angle)
+        #     print("pos_update_in_t[t, :] after correct for tot angle = ", self.pos_update_in_t[t, :])
+
+        # ------ delta tip and angle ------
+        # through BEASTAL, one_to_one or radial_one_to_one
+        dispatch = self._get_delta_dispatch()
+        fn = dispatch.get(self.update_scheme, None)  # function to calculate delta tip and angle from update_scheme
+        if fn is None:
+            raise ValueError(f"Unknown update_scheme='{self.update_scheme}'")
+        delta_tip_x, delta_tip_y, delta_angle = fn(t)
+        delta_tip = array([delta_tip_x, delta_tip_y])  # assemble into 3d array
+        if not self.supress_prints:
+            print(f'delta_tip before corr {delta_tip}')
+            print(f'delta_angle before corr {delta_angle}')
+
+        # ------ normalize step if update is non-zero ------
+        if self.normalize_step and np.linalg.norm(np.append(delta_tip, delta_angle)) > 10**(-12):
+            step_size = np.linalg.norm(np.append(delta_tip, delta_angle))
+            # tradeoffs since angles and positions are different units
+            if self.update_scheme == 'loss_diff':
+                tradeoff_pos_angle = 1
+            else:
+                tradeoff_pos_angle = 2
+            delta_tip = copy.copy(delta_tip)/step_size*self.alpha
+            delta_angle = copy.copy(delta_angle)/step_size*self.alpha * tradeoff_pos_angle
+            if not self.supress_prints:
+                print(f'normalized position to {delta_tip}')
+                print(f'normalized angle to {float(delta_angle)}')
+
+        # ------ insert into vectors in time ------
+        # get previous tip positions
+        if t == 1:
+            prev_tip_update = self.pos_in_t[t, :]
         else:
-            prev_pos_update = self.pos_update_in_t[t - 1, :].copy()
+            prev_tip_update = self.pos_update_in_t[t-1, :]
+        if not self.supress_prints:
+            print(f'prev_tip_update{prev_tip_update}')
 
-        # calculate update
-        sgn_x = float(np.sign(prev_pos_update[0]))
-        delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        delta_y_update = -self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        delta_theta_update = -self.alpha * self.loss_norm[1] * m.norm_angle
+        # invert delta_tip if required
+        if self.invert_delta_tip is True:  # invert tip
+            delta_tip = -delta_tip
+            delta_angle = -delta_angle
 
-        # store
-        delta_update = np.array([delta_x_update, delta_y_update, delta_theta_update], dtype=float)
-        self.pos_update_in_t[t, :] = prev_pos_update + delta_update
-        print("pos_update_in_t[t, :] before correct for tot angle = ", self.pos_update_in_t[t, :])
+        # add to tip update in time
+        self.pos_update_in_t[t, :] = prev_tip_update + np.append(delta_tip, delta_angle)
 
-        # correct for total angle
+        # ------ correct for total angle ------
+        # add change in tip angle to the total angle from the origin
         if correct_for_total_angle:
-            if t == 0:
+            if t == 1:
                 prev_total_angle = 0.0
             else:
-                prev_total_angle = float(self.total_angle_update_in_t[t - 1])
-
-            tip_pos = self.pos_update_in_t[t, :2].copy()
-            self.total_angle = helpers.get_total_angle(self.L, tip_pos, prev_total_angle)
-            delta_total_angle = self.total_angle - prev_total_angle
+                prev_total_angle = self.total_angle_update_in_t[t-1]
+            total_angle = helpers.get_total_angle(self.L, self.pos_update_in_t[t, :2], prev_total_angle)
+            self.total_angle_update_in_t[t] = total_angle
+            delta_total_angle = total_angle - prev_total_angle
             self.pos_update_in_t[t, 2] += delta_total_angle
-            self.total_angle_update_in_t[t] = self.total_angle
-            print("current total_angle", self.total_angle)
-            print("pos_update_in_t[t, :] after correct for tot angle = ", self.pos_update_in_t[t, :])
+            if not self.supress_prints:
+                print(f'total angle {total_angle}')
+                print(f'add delta tip angle {delta_total_angle} to correct for total angle ')
+
+        # ------ correct for coil or cut origin ------
+        cond_coil = helpers.coil(self.pos_update_in_t[t, 2], revolutions=1.5)
+        cond_cut_origin = helpers.swept_last_edge_crosses_first_edge(tip_prev=prev_tip_update[:2],
+                                                                     angle_prev=prev_tip_update[2],
+                                                                     tip_new=self.pos_update_in_t[t, :2],
+                                                                     angle_new=self.pos_update_in_t[t, 2],
+                                                                     L=self.L, include_endpoints=False)
+
+        self.restart = False
+
+        if correct_for_cut_origin and cond_cut_origin:
+            print('origin is cut')
+            self.coil_count = 0
+            self.origin_cut_restart_count += 1
+
+            # sign is just from angle direction of tip
+            side_sign = np.sign(delta_angle)
+            self._restart_flat_with_y_bias(t, side_sign=side_sign)
+            print(f'setting update tip pos={self.pos_update_in_t[t, :2]}, angle={self.pos_update_in_t[t, 2]}')
+            prev_total_angle = 0.0
+            self.last_restart_reason = "origin_cut"
+
+        elif correct_for_coil and cond_coil:
+            print('coiled up too much')
+            self.pos_update_in_t[t, :] = self.pos_in_t[t, :]
+            self.total_angle_update_in_t[t] = 0.0
+            print(f'setting update tip pos={self.pos_update_in_t[t, :2]}, angle={self.pos_update_in_t[t, 2]}')
+            prev_total_angle = 0.0
+            self.restart = True
+            self.last_restart_reason = "coil"
+            self.origin_cut_restart_count = 0
+            self.coil_count += 1
+
+        # invert sign of tip change if training fails
+        # STILL TO DO
+
+        if not self.supress_prints:
+            delta_tip_after_corr = self.pos_update_in_t[t, :2] - self.pos_update_in_t[t-1, :2]
+            delta_angle_after_corr = self.pos_update_in_t[t, 2] - self.pos_update_in_t[t-1, 2]
+            print(f'delta_tip after correcting coil and cut origin {delta_tip_after_corr}')
+            print(f'delta_angle after correcting coil and cut origin {delta_angle_after_corr}')
+
+        # ------ update total angle -------
+        self.total_angle_update_in_t[t] = helpers.get_total_angle(self.L, self.pos_update_in_t[t, :2],
+                                                                  prev_total_angle)
+        if not self.supress_prints:
+            print(f'total angle end of calc_update {self.total_angle_update_in_t[t]}')
 
     # ---------------------------------------------------------------
     # Helpers for Supervisor Class
@@ -321,6 +446,79 @@ class SupervisorClass:
         """
         with Path(dataset_path).open("r", encoding="utf-8") as file_obj:
             return sum(1 for _ in file_obj) - 2
+
+    def _restart_flat_with_y_bias(self, t: int, side_sign: float) -> None:
+        """
+        Restart from flat, but bias the tip slightly above/below the x-axis.
+        Repeated origin cuts increase the vertical bias magnitude.
+        """
+        mag = (self.origin_restart_base_frac +
+               max(0, self.origin_cut_restart_count - 1) * self.origin_restart_step_frac) * self.L
+
+        y_restart = float(side_sign) * mag
+        x_restart = float((self.H + 1) * self.L - mag)
+        tip_restart = np.array([x_restart, y_restart], dtype=np.float32)
+        total_angle_restart = helpers.get_total_angle(self.L, tip_restart, prev_total_angle=0.0)
+
+        self.pos_update_in_t[t, :2] = tip_restart
+        self.pos_update_in_t[t, 2] = total_angle_restart
+        self.total_angle_update_in_t[t] = total_angle_restart
+        self.restart = True
+
+        if not self.supress_prints:
+            print(f"cut origin for the {self.origin_cut_restart_count} time")
+
+    def _get_delta_dispatch(self):
+        """
+        Map update_scheme -> function that computes (delta_tip_x, delta_tip_y, delta_angle).
+        Each function must return 3 scalars in *your current convention*.
+
+        Returns:
+        --------
+        function that calculates tip update values inside self.calc_update
+        """
+        return {"one_to_one": self._delta_one_to_one,
+                "loss_diff": self._delta_loss_diff}
+
+    def _delta_one_to_one(self, t):
+        """
+        change tip directly from loss, no pseudo inverse, calculations in cartesian coordinates
+        dx = +alpha*loss_x*sign(y)
+        dy = -alpha*loss_x*sign(x)
+        dtheta = -alpha*loss_y
+
+        Parameters:
+        -----------
+        t : int, current training time step
+
+        Returns:
+        --------
+        3 floats of change in tip position during update
+        """
+        sgnx = np.sign(self.pos_update_in_t[t-1, 0])
+        sgny = np.sign(self.pos_update_in_t[t-1, 1])
+        if sgnx == 0.0:
+            sgnx = 1
+        if sgny == 0.0:
+            sgny = 1
+        delta_tip_x = - self.alpha * self.loss[0] * (-sgny) * self.norm_pos  # up to Mar17
+        delta_tip_y = - self.alpha * self.loss[0] * (+sgnx) * self.norm_pos  # up to Mar17
+        delta_angle = - self.alpha * self.loss[1] * self.norm_angle  # up to Mar17
+        return delta_tip_x, delta_tip_y, delta_angle
+
+    def _delta_loss_diff(self, t):
+        sgnx = np.sign(self.pos_update_in_t[t-1, 0])
+        sgny = np.sign(self.pos_update_in_t[t-1, 1])
+        if sgnx == 0.0:
+            sgnx = 1
+        if sgny == 0.0:
+            sgny = 1
+        loss_diff = self.loss[0] - self.loss[1]
+        loss_add = self.loss[0] + self.loss[1]
+        delta_tip_x = - self.alpha * loss_diff * (-sgny) * self.norm_pos  # Mar23
+        delta_tip_y = - self.alpha * loss_diff * (+sgnx) * self.norm_pos  # Mar23
+        delta_angle = - self.alpha * loss_add * self.norm_angle  # Mar23
+        return delta_tip_x, delta_tip_y, delta_angle
 
     # @staticmethod
     # def _parse_buckles_from_path(dataset_path: str) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
