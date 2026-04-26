@@ -33,7 +33,7 @@ class SupervisorClass:
         Compute and store loss, normalized loss and its MSE at time step ``t``.
     calc_tip_update(m: "MecaClass", t, correct_for_total_angle) -> None
         Calculate Update modality tip position at training time step ``t``, based on loss.
-    
+
     Helpers:
     --------
     _infer_T_from_dataset(dataset_path) -> int
@@ -123,8 +123,8 @@ class SupervisorClass:
         self.Fx = 0.0
         self.Fy = 0.0
 
-    def init_dataset(self, dataset_path: str = "dataset.csv", out_path: str = "dataset.csv", 
-                     measure_des: bool = False, m: Optional["MecaClass"] = None, 
+    def init_dataset(self, dataset_path: str = "dataset.csv", out_path: str = "dataset.csv",
+                     measure_des: bool = False, m: Optional["MecaClass"] = None,
                      Snsr: Optional["ForsentekClass"] = None) -> None:
         """Initialize tip Measurement values for current experiment.
 
