@@ -16,6 +16,7 @@ import robot_helpers, file_helpers, helpers
 if TYPE_CHECKING:
     from Logger import Logger
     from SupervisorClass import SupervisorClass
+    from ForsentekClass import ForsentekClass, ForceLimitEvent
 
 # Use tool to setup default console and file logger
 tools.SetDefaultLogger(logging.INFO, f'{pathlib.Path(__file__).stem}.log')
@@ -261,17 +262,30 @@ class MecaClass:
         self.robot.WaitIdle()
         logger.info("Robot done moving")
 
-    def move_pos_w_mid(self, points: NDArray[np.float64], Sprvsr: Optional["SupervisorClass"] = None) -> None:
+    def move_pos_w_mid(self, points: NDArray[np.float64], Sprvsr: Optional["SupervisorClass"] = None,
+                       Snsr: Optional["ForsentekClass"] = None) -> bool:
         """Move to either 3-DOF simulation target or 6-DOF robot target.
 
         Parameters
         ----------
-        points : NDArray[np.float64] Either ``(x, y, theta_z)`` [mm, mm, deg] in simulation coordinates
-                                     Or ``(x, y, z, rx, ry, rz)`` [3*mm, 3*deg] in robot position coordinates.
-        
-        Notes:
+        points          : NDArray[np.float64] Either ``(x, y, theta_z)`` [mm, mm, deg] in simulation coordinates
+                          or ``(x, y, z, rx, ry, rz)`` [3*mm, 3*deg] in robot position coordinates.
+        Sprvsr          : SupervisorClass, optional. Required when ``points`` is 3-DOF.
+        Snsr            : ForsentekClass, optional. If provided with ``force_threshold``, guard motion by force.
+        force_threshold : float, optional. Local-frame force threshold [N].
+        force_mode      : {"norm_xy", "norm_xyz", "abs_axes"}. Rule for threshold comparison.
+        force_chunk_T   : float, optional. Duration [s] of each sensor read chunk during motion.
+        force_consecutive : int, optional. Consecutive over-threshold chunks required before stopping.
+        revert_on_force : bool, optional. If True, return to pose before guarded move after force event.
+
+        Returns
+        -------
+        bool
+            True if the motion finished normally. False if force guard stopped/reverted the motion.
+
+        Notes
         -----
-        Sprvsr SupervisorClass required when ``points`` is 3-DOF, for geometry dependent sanitization
+        The original behavior is unchanged if ``Snsr`` or ``force_threshold`` is omitted.
         """
         target: tuple[float, float, float, float, float, float]
 
@@ -286,36 +300,143 @@ class MecaClass:
             target = tuple(target_arr)
         else:
             logger.info("position given is not x, y, theta_z or 6 DOFs")
-            return
+            return False
 
         # here previously was "correct for too big a twist"
 
         # move one final time
         # self.move_lin_split(target)
-        self.move_lin_or_pose(target, mod='lin')
-        self.current_pos = self.pts_6_to_3(target)
+        completed = self.move_lin_or_pose(target, Snsr, mod='lin')
+        if completed:
+            self.current_pos = self.pts_6_to_3(target)
+        else:
+            self._get_current_pos()
+        return completed
 
     def move_lin_or_pose(self, target: tuple[float, float, float, float, float, float],
-                         mod: str) -> None:
-        """Execute either ``MoveLin`` or ``MovePose`` with automatic recovery."""
+                         Snsr: Optional["ForsentekClass"] = None, mod: str = 'lin',
+                         revert_on_force: bool = True) -> bool:
+        """Execute either ``MoveLin`` or ``MovePose`` with optional force guarding.
+
+        Parameters
+        ----------
+        target          : tuple. Robot pose ``(x, y, z, rx, ry, rz)``.
+        mod             : {"lin", "pose"}. Motion primitive.
+        Snsr            : ForsentekClass, optional. If provided with ``force_threshold``, guard motion by force.
+        force_threshold : float, optional. Local-frame force threshold [N].
+        force_mode      : {"norm_xy", "norm_xyz", "abs_axes"}. Rule for threshold comparison.
+
+        Returns
+        -------
+        bool
+            True if the motion finished normally. False if force guard stopped/reverted the motion.
+        """
         robot_helpers.assert_ready(self.robot)
-        try:
+
+        if mod not in ("lin", "pose"):
+            raise ValueError("mod must be either 'lin' or 'pose'.")
+
+        def motion() -> None:
             if mod == 'lin':
                 self.robot.MoveLin(*target)
-            elif mod == 'pose':
+            else:  # mod == 'pose'
                 self.robot.MovePose(*target)
-            else:
-                raise ValueError("mod must be either 'lin' or 'pose'.")
             self.robot.WaitIdle()
+
+        try:
+            if Snsr is not None and Snsr.force_threshold is not None:
+                return self.run_with_force_guard(motion, Snsr, revert_on_force=revert_on_force)
+
+            motion()
+            return True
+
         except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
                 Exception):
-            # Robot likely entered error on invalid move
+            # Robot likely entered error on invalid move. Preserve previous recovery behavior.
             self._recover_robot()
-            if mod == 'lin':
-                self.robot.MoveLin(*target)
-            elif mod == 'pose':
-                self.robot.MovePose(*target)
-            self.robot.WaitIdle()
+            motion()
+            return True
+
+    def run_with_force_guard(self, motion: Callable[[], None], Snsr: "ForsentekClass",
+                             revert_on_force: bool = True) -> bool:
+        """Run a blocking robot-motion callable while monitoring force in the background.
+
+        Parameters
+        ----------
+        motion            : callable. Function that starts robot motion and blocks until it ends.
+        Snsr              : ForsentekClass. Sensor instance used for the background force listener.
+        force_threshold   : float. Local-frame force threshold [N].
+        force_mode        : {"norm_xy", "norm_xyz", "abs_axes"}. Rule for threshold comparison.
+        force_chunk_T     : float, optional. Duration [s] of each sensor read chunk.
+        revert_on_force   : bool, optional. If True, return to the robot pose before the motion.
+
+        Returns
+        -------
+        bool
+            True if ``motion`` completed normally. False if force exceeded the threshold.
+
+        Notes
+        -----
+        Use this for additional movements that are not routed through ``move_pos_w_mid()``.
+        """
+        start_pose = tuple(np.asarray(self.robot.GetPose(), dtype=float))
+        force_event: Optional["ForceLimitEvent"] = None
+
+        def on_force_limit(event: "ForceLimitEvent") -> None:
+            logger.warning("Force threshold exceeded: %.6g N >= %.6g N, force=%s",
+                           event.peak_value, event.threshold, event.force)
+            self.stop_motion()
+
+        Snsr.start_force_listener(on_limit=on_force_limit)
+        try:
+            try:
+                print('motion on in run_with_force_guard')
+                motion()
+            except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
+                    Exception):
+                # If the force listener stopped the robot, do not recover and retry the unsafe motion.
+                if not Snsr.force_limit_triggered():
+                    raise
+            finally:
+                force_event = Snsr.stop_force_listener()
+                print('force_event', force_event)
+
+            if force_event is None:
+                return True
+
+            if revert_on_force:
+                self._revert_to_pose(start_pose)
+
+            return False
+
+        except Exception:
+            if Snsr.force_listener_running():
+                Snsr.stop_force_listener()
+            raise
+
+    def stop_motion(self) -> None:
+        """Stop current robot motion and clear queued motion when supported by the Mecademic API."""
+        for method_name in ("PauseMotion", "ClearMotion"):
+            fn = getattr(self.robot, method_name, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception as exception:
+                    logger.warning("%s failed while stopping motion: %s", method_name, exception)
+
+    def _revert_to_pose(self, pose: tuple[float, float, float, float, float, float]) -> None:
+        """Return to a previously saved robot pose after a force-limited stop."""
+        resume = getattr(self.robot, "ResumeMotion", None)
+        if callable(resume):
+            try:
+                resume()
+            except Exception as exception:
+                logger.warning("ResumeMotion failed before revert: %s", exception)
+
+        robot_helpers.assert_ready(self.robot)
+        self.robot.MoveLin(*pose)
+        self.robot.WaitIdle()
+        self._get_current_pos()
 
     def _get_current_pos(self) -> None:
         """Read current robot position and store corresponding 3-DOF simulation state."""

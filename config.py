@@ -7,8 +7,10 @@ class VariabsConfig:
     ip: str = "192.168.0.100"
 
     # motion
-    lin_vel: float = 20.0
-    ang_vel: float = 10.0
+    # lin_vel: float = 20.0  # good 2026March
+    # ang_vel: float = 10.0  # good 2026March
+    lin_vel: float = 8.0  # for force listener 2026Apr
+    ang_vel: float = 2.0  # for force listener 2026Apr
     lin_acc: float = 20.0
     ang_acc: float = 20.0
     vel: float = 10.0
@@ -88,6 +90,10 @@ class SnsrConfig:
 
     angle: float = 90.0
     norm_force: float = 0.1
+
+    force_threshold: float = 1.0
+    force_chunk_T: float = 0.1
+    revert_on_force: bool = True
 
 
 @dataclass(frozen=True)
