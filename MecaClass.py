@@ -187,6 +187,7 @@ class MecaClass:
         ----------
         mod : "training"      = chain tip clamp mounted on robot tip
               "stress_strain" = pole is connected to robot tip, sinlge hinge connected to table.
+              "elevated"      = elevate tip a little more to allow connecting chain
         """
         # initiate
         self.x_TRF, self.y_TRF, self.z_TRF = 0.0, 0.0, 0.0
@@ -212,7 +213,7 @@ class MecaClass:
             self.y_WRF += self.pos_origin[1]
 
             self.pole_rad = float(self.CFG.Variabs.pole_rad)
-        elif mod == 'training':
+        elif mod == 'training' or mod == 'elevated':
             # ------ TRF ------
             # set tip at chain end
             x_offset_tip = float(self.CFG.Variabs.offset_chain_tip)  # tip, negative sign
@@ -224,6 +225,9 @@ class MecaClass:
             # ------ WRF ------
             self.x_WRF += self.pos_origin[0]
             self.y_WRF += self.pos_origin[1]
+
+            if mod == 'elevated':  # elevate tip a little more to allow connecting chain
+                self.z_TRF += 1/2*holder_len
         else:  # cable holder always positioned
             holder_len = float(self.CFG.Variabs.holder_len)
             self.z_TRF += holder_len
