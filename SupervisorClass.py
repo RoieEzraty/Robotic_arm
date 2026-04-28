@@ -54,11 +54,9 @@ class SupervisorClass:
     pos_update_in_t: NDArray[np.float64]          # Update values, shape ``(T, 3)`` [mm, mm, deg]
     total_angle_update_in_t: NDArray[np.float64]  # wrapped angle between tip and base, CCW from x axis, shape ``(T,)``, [deg]
     loss_in_t: NDArray[np.float64]                # Loss for every T (pos_in_t), shape ``(T, 2)``. [mN, mN]
-    loss_norm_in_t: NDArray[np.float64]           # Loss_in_t normalized by typical force, shape ``(T, 2)``
     loss_MSE_in_t: NDArray[np.float64]            # Mean Squared Error of the loss, shape ``(T,)``
     pos: NDArray[np.float64]                      # current tip position, shape ``(3,)``
     loss: NDArray[np.float64]                     # current loss, shape ``(2,)``
-    loss_norm: NDArray[np.float64]                # current normalized loss, shape ``(2,)``
     loss_MSE: float                               # Mean Square error of current loss
     Fx: float                                     # current sensed force in global x direction [mN]
     Fy: float                                     # current sensed force in global x direction [mN]
@@ -127,14 +125,12 @@ class SupervisorClass:
         self.pos_update_in_t = np.zeros((self.T, 3), dtype=float)
         self.total_angle_update_in_t = np.zeros(self.T, dtype=float)
         self.loss_in_t = np.zeros((self.T, 2), dtype=float)
-        self.loss_norm_in_t = np.zeros((self.T, 2), dtype=float)
         self.loss_MSE_in_t = np.zeros(self.T, dtype=float)
         self.pos_in_t = np.zeros((self.T, 3), dtype=float)
         
         # initialize instantaneous parameters
         self.pos = np.zeros(3, dtype=float)
         self.loss = np.zeros(2, dtype=float)
-        self.loss_norm = np.zeros(2, dtype=float)
         self.loss_MSE = 0.0
         self.Fx = 0.0
         self.Fy = 0.0
@@ -143,7 +139,7 @@ class SupervisorClass:
         self.supress_prints = supress_prints
 
     def init_dataset(self, dataset_path: str = "dataset.csv", out_path: str = "dataset.csv",
-                     measure_des: bool = False, m: Optional["MecaClass"] = None,
+                     measure_des: bool = False, margin: float = 0.025, m: Optional["MecaClass"] = None,
                      Snsr: Optional["ForsentekClass"] = None) -> None:
         """Initialize tip Measurement values for current experiment.
 
@@ -152,6 +148,7 @@ class SupervisorClass:
         dataset_path : str, source dataset path. If not provided, measures it's own and saves into file
         out_path     : str, output path. Used when ``measure_des`` == ``True``.
         measure_des  : If ``True``, measure desired forces for training configuration, write to ``out_path``.
+        margin       : float, fraction of normalized length and angle just to negate straight chain
         """
 
         # ------- optionally measure the dataset ------
@@ -208,7 +205,8 @@ class SupervisorClass:
                     self.desired_F_in_t[t_idx:t_idx+batch_size] = (force_base[selection])
                     t_idx += batch_size
             elif self.dataset_type == "predetermined":  # average force of full predetermined trajectory
-                tip_pos = pos_base[0, :]
+                # tip_pos = pos_base[0, :]
+                tip_pos = np.array([self.H*self.L*(1-margin), self.L*margin, self.norm_angle*margin])
                 print('tip_pos=', tip_pos)
                 desired_forces = np.mean(force_base, axis=0)
                 print('force_base=', force_base)
@@ -275,12 +273,11 @@ class SupervisorClass:
         """
         # calculate
         self.loss = (self.desired_F_in_t[t, :] - self.F_in_t[t, :]) / self.convert_F  # (2,) [mN]
-        self.loss_norm = self.loss / float(norm_force)  # (2,) [dimless]
-        self.loss_MSE = float(np.mean(self.loss_norm ** 2))  # (1,) [dimless]
+        self.loss = self.loss / float(norm_force)  # (2,) [dimless]
+        self.loss_MSE = float(np.mean(self.loss ** 2))  # (1,) [dimless]
 
         # store
         self.loss_in_t[t, :] = self.loss
-        self.loss_norm_in_t[t, :] = self.loss_norm
         self.loss_MSE_in_t[t] = self.loss_MSE
 
     def calc_tip_update(self, m: "MecaClass", t: int, 
