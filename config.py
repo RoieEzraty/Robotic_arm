@@ -41,8 +41,10 @@ class VariabsConfig:
 @dataclass(frozen=True)
 class SprvsrConfig:
     experiment: str = "training"
-    dataset_type: str = "from file"
-    dataset_path: str = (r"data\measurements\Feb18\0001to1000_2\dataset.csv")
+    # dataset_type: str = "from file"
+    dataset_type: str = "predetermined"
+    # dataset_path: str = r"data\measurements\Feb18\0001to1000_2\dataset.csv"
+    dataset_path: str = r"data\datasets\Mar22\example_traj.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs

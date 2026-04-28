@@ -394,7 +394,6 @@ class MecaClass:
         Snsr.start_force_listener(on_limit=on_force_limit)
         try:
             try:
-                print('motion on in run_with_force_guard')
                 motion()
             except (mdr.MecademicNonFatalException, mdr.MecademicFatalException, mdr.InterruptException,
                     Exception):

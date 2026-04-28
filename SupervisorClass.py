@@ -207,6 +207,15 @@ class SupervisorClass:
                     self.pos_in_t[t_idx:t_idx+batch_size] = pos_base[selection]
                     self.desired_F_in_t[t_idx:t_idx+batch_size] = (force_base[selection])
                     t_idx += batch_size
+            elif self.dataset_type == "predetermined":  # average force of full predetermined trajectory
+                tip_pos = pos_base[0, :]
+                print('tip_pos=', tip_pos)
+                desired_forces = np.mean(force_base, axis=0)
+                print('force_base=', force_base)
+                print('desired_forces=', desired_forces)
+
+                self.pos_in_t[:] = np.tile(tip_pos, (self.T, 1))
+                self.desired_F_in_t = np.tile(desired_forces, (self.T, 1))
             else:
                 raise ValueError(f"Unsupported dataset type: {self.dataset_type}")
         else:  # straight from the file

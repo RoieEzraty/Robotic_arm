@@ -238,15 +238,12 @@ class ForsentekClass:
         self.last_force_event = None
 
         chunk_samples = max(1, int(round(self.force_chunk_T * self.fs)))
-        print('chunk_samples', chunk_samples)
         self._listener_thread = threading.Thread(target=self._force_listener_loop, args=(chunk_samples, on_limit),
                                                  daemon=True)
         self._listener_thread.start()
-        print('listener started')
 
     def stop_force_listener(self) -> Optional[ForceLimitEvent]:
         """Stop the background force listener and return the latest threshold event, if any."""
-        print('stopping force listener')
         self._listener_stop.set()
 
         if self._listener_thread is not None and self._listener_thread.is_alive():
@@ -261,7 +258,6 @@ class ForsentekClass:
         if self._listener_error is not None:
             raise RuntimeError("Force listener failed.") from self._listener_error
 
-        print('listener stopped')
         return self.last_force_event
 
     def force_listener_running(self) -> bool:
@@ -276,7 +272,6 @@ class ForsentekClass:
                              on_limit: Optional[Callable[[ForceLimitEvent], None]]) -> None:
         """Read force chunks until stopped or until force exceeds threshold."""
         timeout = max(1.0, 3.0 * chunk_samples / self.fs)
-        print('started _force_listener_loop')
 
         try:
             with self._task_lock:
@@ -289,11 +284,8 @@ class ForsentekClass:
                                                      samps_per_chan=max(chunk_samples, 2))
                 self.task.start()
 
-            print('self._listener_stop', self._listener_stop)
             while not self._listener_stop.is_set():
-                print('listener stop is not set')
                 with self._task_lock:
-                    print('reading data')
                     raw_data = self.task.read(number_of_samples_per_channel=chunk_samples, timeout=timeout)
 
                 raw_arr = np.asarray(raw_data, dtype=float)
@@ -311,7 +303,6 @@ class ForsentekClass:
 
                 idx = int(np.argmax(force_values))
                 peak = float(force_values[idx])
-                print('peak=', peak)
 
                 if peak >= self.force_threshold:
                     self.last_force_event = ForceLimitEvent(t_unix=time.time(), force=force_chunk[idx, :].copy(),

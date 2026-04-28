@@ -64,7 +64,7 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
     for i, pos in enumerate(x_y_theta_vec):
         # move arm
         print(f"moving robot to pos={pos}")
-        m.move_pos_w_mid(pos, Sprvsr)
+        m.move_pos_w_mid(pos, Sprvsr, Snsr)
 
         # record force
         print("recording force")
@@ -74,6 +74,28 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
 
     print("finished logging force measurements")
     return x_y_theta_vec, F_vec
+
+
+def measurement(m: "MecaClass", Snsr: "ForsentekClass", Sprvsr: "SupervisorClass", t: int, path: Optional[str] = None) -> None:
+    if Sprvsr.dataset_type == "predetermined":
+        if path is not None:
+            _, F_vec = sweep_measurement_fixed_origami(m, Snsr, Sprvsr, path=path)
+        else:
+            raise RuntimeError("please provide predetermined trajectory file path.")
+        print('F_vec=', F_vec)
+        F_t = np.mean(F_vec, axis=0)
+        print('F_t=', F_t)
+        Sprvsr.F_in_t[t, :] = F_t
+    else:
+        Sprvsr.draw_measurement(t)
+        print('tip position = ', Sprvsr.pos)
+        m.move_pos_w_mid(Sprvsr.pos, Sprvsr, Snsr)
+        Snsr.measure()
+        Sprvsr.global_force(Snsr, m, t, plot=True)
+
+
+def update(m: "MecaClass", Snsr: "ForsentekClass", Sprvsr: "SupervisorClass") -> None:
+    return None
 
 
 def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, theta_ss: float, N: int,
@@ -150,7 +172,7 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
         for i, th in enumerate(thetas):
             # move
             target6 = np.array([x0, y0, z0, rx0, ry0, th], dtype=float)
-            m.move_pos_w_mid(target6, Sprvsr=None)
+            m.move_pos_w_mid(target6, Sprvsr=None, Snsr=Snsr)
 
             # measure
             force_in_t, _ = Snsr.measure()
@@ -168,7 +190,7 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
     th1, Fx1, Fy1 = run_sweep_at_xy(theta_end=+theta_max, theta_ss_local=+theta_ss)
 
     # translate behind arm 2nd time
-    m.move_pos_w_mid(np.array([x0, y0, z0, rx0, ry0, 0.0], dtype=float), Sprvsr=None)
+    m.move_pos_w_mid(np.array([x0, y0, z0, rx0, ry0, 0.0], dtype=float), Sprvsr=None, Snsr=Snsr)
     _bypass_arm(m, x_mid=x0 - x_step, y_mid=y0 + y_step, z=z0, rx=rx0, ry=ry0, x_return=x0, y_return=y0)
 
     # sweep theta_ss_local -> -theta_end -> -theta_ss_local
