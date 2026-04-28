@@ -9,8 +9,8 @@ class VariabsConfig:
     # motion
     # lin_vel: float = 20.0  # good 2026March
     # ang_vel: float = 10.0  # good 2026March
-    lin_vel: float = 8.0  # for force listener 2026Apr
-    ang_vel: float = 2.0  # for force listener 2026Apr
+    lin_vel: float = 15.0  # for force listener 2026Apr
+    ang_vel: float = 2.5  # for force listener 2026Apr
     lin_acc: float = 20.0
     ang_acc: float = 20.0
     vel: float = 10.0
@@ -62,7 +62,7 @@ class SprvsrConfig:
     # training
     T: int = 16
     rand_key_dataset: int = 16
-    alpha: float = 0.4
+    alpha: float = 0.2
     init_buckle: tuple[int, ...] = (1, 1, 1, 0)
     desired_buckle: tuple[int, ...] = (1, 1, 1, 1)
 
@@ -94,7 +94,7 @@ class SnsrConfig:
     norm_force: float = 0.1
 
     force_threshold: float = 1.0
-    force_chunk_T: float = 0.1
+    force_chunk_T: float = 0.02
     revert_on_force: bool = True
 
 
