@@ -474,9 +474,11 @@ class SupervisorClass:
             current_pos = m.current_pos.copy()
 
             # -----------------------------
-            # x-y correction
+            # x-y correction 
             # -----------------------------
-            delta_xy = -self.xy_step_size * F / Snsr.norm_force
+            # forces are reaction forces, correct through "+"" sign
+            delta_xy = + self.xy_step_size * F / (Snsr.norm_force * self.convert_F)
+            print('delta_xy=', delta_xy)
 
             nxt_pos = current_pos.copy()
             nxt_pos[:2] += delta_xy
@@ -496,12 +498,14 @@ class SupervisorClass:
             F_probe_norm = float(np.linalg.norm(F_probe))
 
             if F_probe_norm < F_norm:
-                theta_dir = +1.0
-            else:
                 theta_dir = -1.0
+            else:
+                theta_dir = +1.0
 
             # Return from probe implicitly by commanding the final position.
-            nxt_pos[2] = current_pos[2] + theta_dir * self.theta_step_size * F_norm / Snsr.norm_force
+            delta_theta = theta_dir * self.theta_step_size * F_norm / (Snsr.norm_force * self.convert_F)
+            print('delta_theta=', delta_theta)
+            nxt_pos[2] = current_pos[2] + delta_theta
 
             completed = m.move_pos_w_mid(nxt_pos, self, Snsr)
             if not completed:

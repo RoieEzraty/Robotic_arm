@@ -76,8 +76,8 @@ class SprvsrConfig:
     origin_rel_to_sim = [108.0, -14.0, 0.0]
 
     # reach zero-force for update_scheme == 'pos'
-    xy_step_size: float = 1   # [mm]
-    theta_step_size: float = 1  # [deg]
+    xy_step_size: float = 10   # [mm]
+    theta_step_size: float = 4  # [deg]
     F_tol: float = 15  # [mN]
 
 
