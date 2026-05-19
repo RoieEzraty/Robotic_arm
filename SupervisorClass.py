@@ -61,6 +61,9 @@ class SupervisorClass:
     Fx: float                                     # current sensed force in global x direction [mN]
     Fy: float                                     # current sensed force in global x direction [mN]
     alpha: float                                  # learning rate for training update rule
+    xy_step_size: float                           # step size during attempt to reach zero force [mm]
+    theta_step_size: float                        # angular step size during attempt to reach zero force [deg]
+    F_tol: float                                  # force [mN] under which reach_zero_force() stops
     rand_key_dataset: float                       # random seed to initiate dataset, for reproducibility
     normalize_step: bool                          # boolean whether to normalize step size if non-vanishing or not
 
@@ -111,6 +114,12 @@ class SupervisorClass:
         self.last_restart_reason: Optional[str] = None  # None | "origin_cut" | "coil"
         self.origin_restart_base_frac = 0.6  # base vertical offset in units of L
         self.origin_restart_step_frac = 0.6  # extra offset per repeated cut, in units of L
+
+        # for reaching zero force method
+        if self.update_scheme == 'pos':
+            self.xy_step_size = float(CFG.Sprvsr.xy_step_size)   # [mm]
+            self.theta_step_size = float(CFG.Sprvsr.theta_step_size)  # [deg]
+            self.F_tol = float(CFG.Sprvsr.F_tol)  # [N]
 
         # chain and force
         self.L = float(CFG.Sprvsr.L)
@@ -433,6 +442,72 @@ class SupervisorClass:
                                                                   prev_total_angle)
         if not self.supress_prints:
             print(f'total angle end of calc_update {self.total_angle_update_in_t[t]}')
+
+    def reach_zero_force(self, Snsr: "ForsentekClass", m: "MecaClass", max_iter: int = 20) -> None:
+        """Move the tip until the measured global force is small.
+        the procedure is :
+        1) move in x-y down the sensed forces
+        2) probe small angle motion, keep angle change that lowers forces
+        3) repeat
+
+        Parameters
+        ----------
+        max_iter  : int. Maximum number of correction attempts.
+        """
+        for _ in range(max_iter):
+            # -----------------------------
+            # Measure current force
+            # -----------------------------
+            Snsr.measure()
+            F = self.global_force(Snsr, m)  # [Fx, Fy] in mN
+            print('forces=', F)
+            F_norm = float(np.linalg.norm(F))
+
+            if F_norm < self.F_tol:
+                print('F_norm < F_tol')
+                return
+
+            # -----------------------------
+            # Current position
+            # -----------------------------
+            m._get_current_pos()
+            current_pos = m.current_pos.copy()
+
+            # -----------------------------
+            # x-y correction
+            # -----------------------------
+            delta_xy = -self.xy_step_size * F / Snsr.norm_force
+
+            nxt_pos = current_pos.copy()
+            nxt_pos[:2] += delta_xy
+
+            # -----------------------------
+            # theta correction by probing
+            # -----------------------------
+            theta_probe_pos = current_pos.copy()
+            theta_probe_pos[2] += self.theta_step_size
+
+            completed = m.move_pos_w_mid(theta_probe_pos, self, Snsr)
+            if not completed:
+                return
+
+            Snsr.measure()
+            F_probe = self.global_force(Snsr, m)
+            F_probe_norm = float(np.linalg.norm(F_probe))
+
+            if F_probe_norm < F_norm:
+                theta_dir = +1.0
+            else:
+                theta_dir = -1.0
+
+            # Return from probe implicitly by commanding the final position.
+            nxt_pos[2] = current_pos[2] + theta_dir * self.theta_step_size * F_norm / Snsr.norm_force
+
+            completed = m.move_pos_w_mid(nxt_pos, self, Snsr)
+            if not completed:
+                return
+
+        print(f"reach_zero_force stopped after max_iter with |F|={F_norm:.3f} mN")
 
     # ---------------------------------------------------------------
     # Helpers for Supervisor Class

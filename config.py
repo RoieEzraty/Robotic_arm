@@ -48,7 +48,8 @@ class SprvsrConfig:
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
-    update_scheme: str = 'loss_diff'  # difference of x and y loss components
+    # update_scheme: str = 'loss_diff'  # difference of x and y loss components
+    update_scheme: str = 'pos'  # difference of x and y loss components
 
     # normalize_step: bool = True
     normalize_step: bool = False
@@ -62,7 +63,7 @@ class SprvsrConfig:
     # training
     T: int = 16
     rand_key_dataset: int = 16
-    alpha: float = 0.2
+    alpha: float = 0.2  # [dimless]
     init_buckle: tuple[int, ...] = (1, 1, 1, 0)
     desired_buckle: tuple[int, ...] = (1, 1, 1, 1)
 
@@ -73,6 +74,11 @@ class SprvsrConfig:
 
     # match simulation and experiment
     origin_rel_to_sim = [108.0, -14.0, 0.0]
+
+    # reach zero-force for update_scheme == 'pos'
+    xy_step_size: float = 1   # [mm]
+    theta_step_size: float = 1  # [deg]
+    F_tol: float = 15  # [mN]
 
 
 @dataclass(frozen=True)
