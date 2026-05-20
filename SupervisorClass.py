@@ -505,21 +505,17 @@ class SupervisorClass:
 
             try:
                 m.set_frames('rotate_angle_directly')  # rotate angle without chain-tip x_TRF shift
-                m._get_current_pos()
-                current_pos = m.current_pos.copy()
-                theta_probe_pos = current_pos.copy()
-                theta_probe_pos[2] += self.theta_step_size
-
-                completed = m.move_pos_w_mid(theta_probe_pos, self, Snsr)
+                m.robot.MoveLinRelTRF(0, 0, 0, 0, 0, +self.theta_step_size)
                 if not completed:
                     return
                 else:
-                    print('moved to angle directly frame position for probe =', theta_probe_pos)
+                    print('moved to angle directly frame position for probe')
 
                 Snsr.measure()
                 F_probe = self.global_force(Snsr, m)
                 F_probe_norm = float(np.linalg.norm(F_probe))
                 print('forces with theta probe=', F_probe)
+                m.robot.MoveLinRelTRF(0, 0, 0, 0, 0, -self.theta_step_size)
 
                 if F_probe_norm < F_norm_after_xy:
                     theta_dir = +1.0
@@ -528,9 +524,7 @@ class SupervisorClass:
 
                 delta_theta = theta_dir * self.theta_step_size * F_norm_after_xy / (Snsr.norm_force * self.convert_F)
                 print('delta_theta=', delta_theta)
-                nxt_pos = current_pos.copy()
-                nxt_pos[2] += delta_theta
-                completed = m.move_pos_w_mid(nxt_pos, self, Snsr)
+                m.robot.MoveLinRelTRF(0, 0, 0, 0, 0, delta_theta)
                 if not completed:
                     return
                 else:
