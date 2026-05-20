@@ -77,8 +77,8 @@ class SprvsrConfig:
 
     # reach zero-force for update_scheme == 'pos'
     xy_step_size: float = 10   # [mm]
-    theta_step_size: float = 4  # [deg]
-    F_tol: float = 15  # [mN]
+    theta_step_size: float = 8  # [deg]
+    F_tol: float = 5  # [mN]
 
 
 @dataclass(frozen=True)

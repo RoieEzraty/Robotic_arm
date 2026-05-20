@@ -454,6 +454,7 @@ class SupervisorClass:
         ----------
         max_iter  : int. Maximum number of correction attempts.
         """
+        print('initial position = ', m.current_pos)
         for _ in range(max_iter):
             # -----------------------------
             # Measure current force
@@ -470,7 +471,6 @@ class SupervisorClass:
             # -----------------------------
             # Current position
             # -----------------------------
-            m._get_current_pos()
             current_pos = m.current_pos.copy()
 
             # -----------------------------
@@ -483,35 +483,74 @@ class SupervisorClass:
             nxt_pos = current_pos.copy()
             nxt_pos[:2] += delta_xy
 
-            # -----------------------------
-            # theta correction by probing
-            # -----------------------------
-            theta_probe_pos = current_pos.copy()
-            theta_probe_pos[2] += self.theta_step_size
-
-            completed = m.move_pos_w_mid(theta_probe_pos, self, Snsr)
-            if not completed:
-                return
-
-            Snsr.measure()
-            F_probe = self.global_force(Snsr, m)
-            F_probe_norm = float(np.linalg.norm(F_probe))
-
-            if F_probe_norm < F_norm:
-                theta_dir = -1.0
-            else:
-                theta_dir = +1.0
-
-            # Return from probe implicitly by commanding the final position.
-            delta_theta = theta_dir * self.theta_step_size * F_norm / (Snsr.norm_force * self.convert_F)
-            print('delta_theta=', delta_theta)
-            nxt_pos[2] = current_pos[2] + delta_theta
-
             completed = m.move_pos_w_mid(nxt_pos, self, Snsr)
             if not completed:
                 return
+            else:
+                print('moved to training frame position=', nxt_pos)
 
-        print(f"reach_zero_force stopped after max_iter with |F|={F_norm:.3f} mN")
+            Snsr.measure()
+            F = self.global_force(Snsr, m)
+            print('forces after xy=', F)
+            F_norm_after_xy = float(np.linalg.norm(F))
+
+            if F_norm_after_xy < self.F_tol:
+                print('F_norm < F_tol after xy')
+                return
+
+            # -----------------------------
+            # theta correction by probing
+            # -----------------------------
+            theta_dir = 0.0
+
+            try:
+                m.set_frames('rotate_angle_directly')  # rotate angle without chain-tip x_TRF shift
+                m._get_current_pos()
+                current_pos = m.current_pos.copy()
+                theta_probe_pos = current_pos.copy()
+                theta_probe_pos[2] += self.theta_step_size
+
+                completed = m.move_pos_w_mid(theta_probe_pos, self, Snsr)
+                if not completed:
+                    return
+                else:
+                    print('moved to angle directly frame position for probe =', theta_probe_pos)
+
+                Snsr.measure()
+                F_probe = self.global_force(Snsr, m)
+                F_probe_norm = float(np.linalg.norm(F_probe))
+                print('forces with theta probe=', F_probe)
+
+                if F_probe_norm < F_norm_after_xy:
+                    theta_dir = +1.0
+                else:
+                    theta_dir = -1.0
+
+                delta_theta = theta_dir * self.theta_step_size * F_norm_after_xy / (Snsr.norm_force * self.convert_F)
+                print('delta_theta=', delta_theta)
+                nxt_pos = current_pos.copy()
+                nxt_pos[2] += delta_theta
+                completed = m.move_pos_w_mid(nxt_pos, self, Snsr)
+                if not completed:
+                    return
+                else:
+                    print('moved to angle directly frame position for update =', nxt_pos)
+
+            finally:
+                m.set_frames('training')  # always return to normal frame
+                m._get_current_pos()
+                print('current position after returning to training frame = ', m.current_pos)
+
+            Snsr.measure()
+            F = self.global_force(Snsr, m)
+            print('forces after theta=', F)
+            F_norm_after_theta = float(np.linalg.norm(F))
+
+            if F_norm_after_theta < self.F_tol:
+                print('F_norm < F_tol after theta')
+                return
+
+        print(f"reach_zero_force stopped after max_iter with |F|={F_norm_after_theta:.3f} mN")
 
     # ---------------------------------------------------------------
     # Helpers for Supervisor Class

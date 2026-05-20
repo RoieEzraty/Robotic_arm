@@ -188,6 +188,8 @@ class MecaClass:
         mod : "training"      = chain tip clamp mounted on robot tip
               "stress_strain" = pole is connected to robot tip, sinlge hinge connected to table.
               "elevated"      = elevate tip a little more to allow connecting chain
+              "rotate_angle_directly" = neglect shift in x direction for rotation against robot axis
+                                        during Sprvsr.reach_zero_force()
         """
         # initiate
         self.x_TRF, self.y_TRF, self.z_TRF = 0.0, 0.0, 0.0
@@ -213,11 +215,16 @@ class MecaClass:
             self.y_WRF += self.pos_origin[1]
 
             self.pole_rad = float(self.CFG.Variabs.pole_rad)
-        elif mod == 'training' or mod == 'elevated':
+        elif mod in ('training', 'elevated', 'rotate_angle_directly'):
             # ------ TRF ------
-            # set tip at chain end
             x_offset_tip = float(self.CFG.Variabs.offset_chain_tip)  # tip, negative sign
-            self.x_TRF += x_offset_tip
+            if mod != 'rotate_angle_directly':
+                # set tip at chain end   
+                self.x_TRF += x_offset_tip
+            else:
+                # Direct angle frame: no x_TRF shift, so rz rotation is about robot/load-cell tool center.
+                # self.x_TRF -= x_offset_tip
+                pass
 
             holder_len = float(self.CFG.Variabs.holder_len)
             self.z_TRF += holder_len
