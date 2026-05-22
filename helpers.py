@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+import pandas as pd
 import numpy as np
 from numpy import array, zeros
 from numpy.polynomial import polynomial as poly
 from numpy.typing import NDArray
 
 
+# ====================
+# robot related
+# ====================
+def TRF_to_robot_tip(x: float, y: float, theta_z: float, tx: float) -> tuple[float, float]:
+    """Convert chain-tip planar coordinates to robot-tip planar coordinates.
+    Used inside MecaClass.clamp_to_circle_xy()
+
+    Parameters
+    ----------
+    x, y, theta_z : floats, Chain-tip coordinates and orientation [mm], [mm], [deg].
+    tx            : float, Tool-frame x offset between robot tip and chain tip [mm].
+
+    Returns
+    -------
+    float, Robot-tip planar coordinates ``(x_robot, y_robot)`` [mm].
+    """
+    dx = float(np.cos(np.deg2rad(theta_z)) * tx)
+    dy = float(np.sin(np.deg2rad(theta_z)) * tx)
+    return float(x - dx), float(y - dy)
+
+
+# ====================
+# Sensor related
+# ====================
 def fit_force_vs_voltage(voltages_array: NDArray[np.float64], forces_array: NDArray[np.float64],
                          std_array: NDArray[np.float64] | None = None) -> NDArray[np.float64]:
     """Fit a linear force-voltage relation independently for x, y, and z: ``F = slope * V + intercept``
@@ -73,6 +98,38 @@ def fit_force_vs_voltage(voltages_array: NDArray[np.float64], forces_array: NDAr
     return fit_params
 
 
+def rotate_force_frame(force_in_t: NDArray[np.float64], tip_angle: float,) -> tuple[NDArray[np.float64],
+                                                                                    NDArray[np.float64]]:
+    """Rotate measured 2D force traces into  global frame.
+    Used inside SupervisorClass.global_force()
+
+    Parameters
+    ----------
+    force_in_t : array, Local-frame force samples of shape ``(T_meas, 2)``, taken from sensor
+    tip_angle  : float, Tip angle relative to the origin [deg].
+
+    Returns
+    -------
+    Fx_global_in_t,  Fy_global_in_t: Global-frame forces, each shaped ``(T_meas,)``.
+    """
+    # caution and raises
+    forces = np.asarray(force_in_t, dtype=float)
+    if forces.ndim != 2 or forces.shape[1] < 2:
+        raise ValueError(f"force_in_t must have shape (T_meas, 2) or larger in second axis, got {forces.shape}.")
+
+    tip_angle_rad = np.deg2rad(tip_angle)
+
+    # rotation with sines and cosines (instead of matrix multip)
+    Fx_global_in_t = -(forces[:, 0] * np.cos(tip_angle_rad) +
+                       forces[:, 1] * np.sin(tip_angle_rad))
+    Fy_global_in_t = -(-forces[:, 0] * np.sin(tip_angle_rad) +
+                       forces[:, 1] * np.cos(tip_angle_rad))
+    return Fx_global_in_t, Fy_global_in_t
+
+
+# ====================
+# Supervisor related
+# ====================
 def get_total_angle(L: float, tip_pos: NDArray[np.float64], prev_total_angle: float) -> float:
     """Compute unwrapped total chain angle from current tip position.
     Used inside MecaClass.clamp_to_circle_xy()
@@ -254,53 +311,6 @@ def swept_last_edge_crosses_first_edge(tip_prev: np.ndarray, angle_prev: float, 
         if _segments_intersect(first_a, first_b, before_s, tip_s, eps=eps, include_endpoints=include_endpoints):
             return True
     return False
-
-
-def rotate_force_frame(force_in_t: NDArray[np.float64], tip_angle: float,) -> tuple[NDArray[np.float64],
-                                                                                    NDArray[np.float64]]:
-    """Rotate measured 2D force traces into  global frame.
-    Used inside SupervisorClass.global_force()
-
-    Parameters
-    ----------
-    force_in_t : array, Local-frame force samples of shape ``(T_meas, 2)``, taken from sensor
-    tip_angle  : float, Tip angle relative to the origin [deg].
-
-    Returns
-    -------
-    Fx_global_in_t,  Fy_global_in_t: Global-frame forces, each shaped ``(T_meas,)``.
-    """
-    # caution and raises
-    forces = np.asarray(force_in_t, dtype=float)
-    if forces.ndim != 2 or forces.shape[1] < 2:
-        raise ValueError(f"force_in_t must have shape (T_meas, 2) or larger in second axis, got {forces.shape}.")
-
-    tip_angle_rad = np.deg2rad(tip_angle)
-
-    # rotation with sines and cosines (instead of matrix multip)
-    Fx_global_in_t = -(forces[:, 0] * np.cos(tip_angle_rad) +
-                       forces[:, 1] * np.sin(tip_angle_rad))
-    Fy_global_in_t = -(-forces[:, 0] * np.sin(tip_angle_rad) +
-                       forces[:, 1] * np.cos(tip_angle_rad))
-    return Fx_global_in_t, Fy_global_in_t
-
-
-def TRF_to_robot_tip(x: float, y: float, theta_z: float, tx: float) -> tuple[float, float]:
-    """Convert chain-tip planar coordinates to robot-tip planar coordinates.
-    Used inside MecaClass.clamp_to_circle_xy()
-
-    Parameters
-    ----------
-    x, y, theta_z : floats, Chain-tip coordinates and orientation [mm], [mm], [deg].
-    tx            : float, Tool-frame x offset between robot tip and chain tip [mm].
-
-    Returns
-    -------
-    float, Robot-tip planar coordinates ``(x_robot, y_robot)`` [mm].
-    """
-    dx = float(np.cos(np.deg2rad(theta_z)) * tx)
-    dy = float(np.sin(np.deg2rad(theta_z)) * tx)
-    return float(x - dx), float(y - dy)
 
 
 # -----------------------------------

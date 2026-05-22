@@ -144,6 +144,7 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
         theta_ss = -theta_ss
 
     def run_sweep_at_xy(theta_end: float, theta_ss_local: float) -> tuple[NDArray[np.float64], NDArray[np.float64],
+                                                                          NDArray[np.float64], NDArray[np.float64],
                                                                           NDArray[np.float64]]:
         """Run sweep from -theta_ss_local -> theta_end -> +theta_ss_local
 
@@ -182,7 +183,7 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
             Fy[i] = float(np.mean(force_in_t[:, 1]))
 
         return thetas, Fx, Fy
- 
+
     # translate behind arm 1st time
     _bypass_arm(m, x_mid=x0 - x_step, y_mid=y0 - y_step, z=z0, rx=rx0, ry=ry0, x_return=x0, y_return=y0)
 
@@ -209,7 +210,15 @@ def stress_strain(m: "MecaClass", Snsr: "ForsentekClass", theta_max: float, thet
     thetas_all = np.concatenate([th1, th2])
     Fx_all = np.concatenate([Fx1, Fx2])
     Fy_all = np.concatenate([Fy1, Fy2])
-    return thetas_all, Fx_all, Fy_all
+
+    # torque is force times length
+    scale = 1000  # mili
+    arm_len = 0.0225  # half a link
+
+    torque_x = Fx_all * arm_len * scale
+    torque_y = Fy_all * arm_len * scale
+
+    return thetas_all, Fx_all, Fy_all, torque_x, torque_y
 
 
 def calibrate_forces_all_axes(m: "MecaClass", Snsr: "ForsentekClass",

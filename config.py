@@ -44,7 +44,7 @@ class SprvsrConfig:
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
     # dataset_path: str = r"data\measurements\Feb18\0001to1000_2\dataset.csv"
-    dataset_path: str = r"data\datasets\Mar22\example_traj.csv"
+    dataset_path: str = r"data\datasets\May22\example_traj.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
@@ -88,12 +88,12 @@ class SnsrConfig:
     Channel_y: str = "ai2"
     Channel_z: str = "ai3"
     samp_freq: float = 200.0
-    T: float = 0.5
+    T: float = 1.0
 
     min_val: float = -5.0
     max_val: float = 5.0
 
-    calibration_path: str = r"data\calibrations\calibration_triaxial_2026-02-09_13-55-56.csv"
+    calibration_path: str = r"data\calibrations\calibration_triaxial_2026-05-21_14-07-18.csv"
     V0_path: str = r"data\calibrations\V0_latest.npz"
 
     angle: float = 90.0

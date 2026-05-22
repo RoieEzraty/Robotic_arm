@@ -10,10 +10,12 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+import matplotlib.pyplot as plt
+
 # -------------------------------
 # Saves/Writes
 # -------------------------------
-def write_supervisor_dataset(x_y_theta: NDArray[np.float64], F_vec: NDArray[np.float64], 
+def write_supervisor_dataset(x_y_theta: NDArray[np.float64], F_vec: NDArray[np.float64],
                              out_path: Optional[str | Path] = None, append: bool = False) -> Path:
     """Write supervisor dataset CSV compatible with :func:`load_pos_force`.
     Used in main Meca500 notebook
@@ -203,6 +205,45 @@ def save_stress_strain(out_path: str | Path, thetas_vec: NDArray[np.float64], Fx
 
         for i in range(n):
             writer.writerow([thetas[i], Fx[i], Fy[i], tau_x[i], tau_y[i]])
+            file_obj.flush()
+
+
+def build_single_hinge_file(input_path: str, output_path: str, plot: bool = True) -> None:
+    df = pd.read_csv(input_path)
+
+    theta = df["theta"].to_numpy(dtype=float)
+    tau = df["torque_x"].to_numpy(dtype=float)
+
+    th_dir = np.diff(theta)
+    th_dir = np.append(th_dir[0], th_dir)
+    theta_up, tau_up = theta[th_dir > 0], tau[th_dir > 0]
+    theta_down, tau_down = theta[th_dir <= 0], tau[th_dir <= 0]
+
+    inds_sort_up = theta_up.argsort()
+    inds_sort_down = theta_down.argsort()
+
+    tau_mean = (tau_up[-inds_sort_up] - (tau_down[inds_sort_down]))/2
+    theta_sort = -theta_up[-inds_sort_up]
+
+    if plot:
+        import colors
+        colors_lst, _, _ = colors.color_scheme()
+        plt.plot(-theta_up, tau_up, color=colors_lst[0])
+        plt.plot(theta_down, -tau_down, color=colors_lst[1])
+        plt.plot(theta_sort, tau_mean, color=colors_lst[2])
+        plt.show()
+
+    # create output file
+    out_file = Path(output_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # insert in file
+    n = theta_sort.shape[0]
+    with out_file.open("w", newline="", encoding="utf-8") as file_obj:
+        writer = csv.writer(file_obj)
+
+        for i in range(n):
+            writer.writerow([theta_sort[i], tau_mean[i]])
             file_obj.flush()
 
 
