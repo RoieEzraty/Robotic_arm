@@ -37,7 +37,8 @@ calibrate_forces_1axis(Snsr, weights_gr, axis)
 def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprvsr: "SupervisorClass",
                                     x_range: Optional[float] = None, y_range: Optional[float] = None,
                                     theta_range: Optional[float] = None, N: Optional[int] = None,
-                                    path: Optional[str] = None) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+                                    path: Optional[str] = None,
+                                    supress_prints: bool = True) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Measure force over a set of tip poses.
 
     Parameters
@@ -63,20 +64,24 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
     F_vec = np.zeros((n_points, 2), dtype=float)
     for i, pos in enumerate(x_y_theta_vec):
         # move arm
-        print(f"moving robot to pos={pos}")
+        if not supress_prints:
+            print(f"moving robot to pos={pos}")
         m.move_pos_w_mid(pos, Sprvsr, Snsr)
 
         # record force
-        print("recording force")
+        if not supress_prints:
+            print("recording force")
         force_in_t, _ = Snsr.measure()
         Sprvsr.global_force(Snsr, m)  # rotate to global frame
         F_vec[i, :] = np.array([Sprvsr.Fx, Sprvsr.Fy], dtype=float)  # insert in vector
 
-    print("finished logging force measurements")
+    if not supress_prints:
+        print("finished logging force measurements")
     return x_y_theta_vec, F_vec
 
 
-def measurement(m: "MecaClass", Snsr: "ForsentekClass", Sprvsr: "SupervisorClass", t: int, path: Optional[str] = None) -> None:
+def measurement(m: "MecaClass", Snsr: "ForsentekClass", Sprvsr: "SupervisorClass", t: int,
+                path: Optional[str] = None) -> None:
     if Sprvsr.dataset_type == "predetermined":
         if path is not None:
             _, F_vec = sweep_measurement_fixed_origami(m, Snsr, Sprvsr, path=path)

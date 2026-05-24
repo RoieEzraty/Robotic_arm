@@ -79,10 +79,12 @@ class SupervisorClass:
             CFG = default_cfg
 
         # general experiment information
+        self.init_buckle = str(CFG.Sprvsr.init_buckle)
+        self.desired_buckle = str(CFG.Sprvsr.desired_buckle)
         self.experiment = str(CFG.Sprvsr.experiment)
         self.dataset_type = str(CFG.Sprvsr.dataset_type)
-        self.dataset_path = str(CFG.Sprvsr.dataset_path)
         self.update_scheme = str(CFG.Sprvsr.update_scheme)
+        self.dataset_path = str(CFG.Sprvsr.dataset_path.format(self.init_buckle))
 
         # orientation
         self.origin_rel_to_sim = np.asarray(CFG.Sprvsr.origin_rel_to_sim, dtype=float)
@@ -125,8 +127,8 @@ class SupervisorClass:
         self.L = float(CFG.Sprvsr.L)
         self.H = int(CFG.Sprvsr.H)
         self.convert_F = float(CFG.Sprvsr.convert_F)
-        self.norm_pos = self.L
-        self.norm_angle = float(np.pi)
+        self.norm_pos = CFG.Variabs.norm_length
+        self.norm_angle = CFG.Variabs.norm_angle
 
         # initialize empty parameters in t
         self.F_in_t = np.zeros((self.T, 2), dtype=float)

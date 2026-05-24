@@ -28,7 +28,8 @@ class VariabsConfig:
     # home of robot, motion is taken from there
     pos_home: tuple[float, float, float, float, float, float] = (189.0, 0.0, 28.0, 179.9, 0.1, 0.1)
     # pos_origin: tuple[float, float] = (83.2, -12.3)  # long table holder
-    pos_origin: tuple[float, float] = (83.2 - 26, -12.3)  # short table holder
+    pos_origin: tuple[float, float, float] = (83.2 - 26, -12.3)  # short table holder
+    pos_stress_strain: tuple[float, float, float] = (72, 0, 0)
     joints_sleep: tuple[float, float, float, float, float, float] = (0.0, -30.0, 20.0, 0.0, 100.0, 90.0)
     norm_length: float = 47.2
     norm_angle: float = 180.0
@@ -44,12 +45,12 @@ class SprvsrConfig:
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
     # dataset_path: str = r"data\measurements\Feb18\0001to1000_2\dataset.csv"
-    dataset_path: str = r"data\datasets\May22\example_traj.csv"
+    dataset_path: str = r"data\datasets\May22\arc\{}.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
-    # update_scheme: str = 'loss_diff'  # difference of x and y loss components
-    update_scheme: str = 'pos'  # difference of x and y loss components
+    update_scheme: str = 'loss_diff'  # difference of x and y loss components
+    # update_scheme: str = 'pos'  # difference of x and y loss components
 
     # normalize_step: bool = True
     normalize_step: bool = False
@@ -64,8 +65,8 @@ class SprvsrConfig:
     T: int = 16
     rand_key_dataset: int = 16
     alpha: float = 0.2  # [dimless]
-    init_buckle: tuple[int, ...] = (1, 1, 1, 0)
-    desired_buckle: tuple[int, ...] = (1, 1, 1, 1)
+    init_buckle: tuple[int, ...] = "0000"
+    desired_buckle: tuple[int, ...] = "0001"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)

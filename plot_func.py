@@ -43,7 +43,7 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
     T = int(F_measured.shape[1])
     if final_t is None:
         final_t = T
-    sl = slice(init_t, final_t)
+    sl = slice(init_t+1, final_t)
     t = np.arange(T, dtype=int)
 
     fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(6, 6), gridspec_kw={"height_ratios": [1, 1]})
@@ -56,14 +56,14 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
     axs[0].plot(t[sl], F_desired[1, sl], color=colors_lst[2], linestyle="--", label="Fy desired")
 
     axs[0].set_ylabel("Force [mN]")
-    axs[0].set_ylim([-130, 330])
+    axs[0].set_ylim([-200, 500])
     axs[0].legend(loc="best")
 
     # ===== bottom: MSE loss =====
     axs[1].plot(t[sl], loss_MSE[sl], color=colors_lst[0], label="loss MSE")
     axs[1].set_xlabel("t")
     axs[1].set_ylabel("Loss")
-    axs[1].set_ylim([-0.02, 2.2])
+    axs[1].set_ylim([-2, 2])
     axs[1].legend(loc="best")
 
     axs[-1].xaxis.set_major_locator(MaxNLocator(integer=True))

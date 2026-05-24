@@ -76,6 +76,7 @@ class MecaClass:
     joints_sleep: tuple[float, float, float, float, float, float]  # 6 joints angles of sleep position [6*deg]
     pos_origin: NDArray[np.float64]                                # (x, y, z) [mm] of chain origin. 
                                                                    # careful for short and long table holders
+    pos_stress_strain: tuple[float, float, float]                                                                   
     norm_length: float                # normalized length (single link) [mm]. For loss calculation etc. 
     norm_angle: float                 # normalized angle [deg]. For loss calculation etc.
     theta_sim_to_robot: float         # orientation of robot and simulation angle. Tip is tilted down so -1.
@@ -113,6 +114,7 @@ class MecaClass:
         self.pos_home = tuple(CFG.Variabs.pos_home)
         self.joints_sleep = tuple(CFG.Variabs.joints_sleep)
         self.pos_origin = np.asarray(CFG.Variabs.pos_origin, dtype=float)
+        self.pos_stress_strain = np.asarray(CFG.Variabs.pos_stress_strain, dtype=float)
 
         self.norm_length = float(CFG.Variabs.norm_length)
         self.norm_angle = float(CFG.Variabs.norm_angle)  # [deg]
