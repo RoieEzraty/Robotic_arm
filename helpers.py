@@ -211,7 +211,8 @@ def fit_circle_xy(points_xy: NDArray[np.float64]) -> float:
     return float(radius)
 
 
-def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, margin: float = 0.0) -> float:
+def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, margin: float = 0.0,
+                     verbose: bool = False) -> float:
     """Compute the remaining effective chain radius after winding.
     shrink model is composed of:
     - ``2 * L`` shrink per each full tip revolution.
@@ -231,7 +232,8 @@ def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, 
     float, Effective allowed radius [mm], clipped at zero.
     """
     # caution, prints and prelims.
-    print(f"total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}")
+    if verbose:
+        print(f"total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}")
     two_pi = 2.0 * np.pi
 
     # change in angle
@@ -243,11 +245,13 @@ def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, 
 
     # effective chain radius shrink due to full tip revolutions
     shrink_full = (2.0 * L) * n_rev
-    print("shrink due to revolutions", shrink_full)
+    if verbose:
+        print("shrink due to revolutions", shrink_full)
 
     # effective chain radius shrink due to partial tip revolutions
     shrink_partial = L * (1.0 - np.cos(rem))
-    print("shrink remainder in [mm]", shrink_partial)
+    if verbose:
+        print("shrink remainder in [mm]", shrink_partial)
 
     # sum both shrinks
     shrink = shrink_full + shrink_partial

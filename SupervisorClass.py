@@ -187,9 +187,9 @@ class SupervisorClass:
             pos_base = array([row["pos"] for row in pos_force_rows], dtype=float)
             force_base = array([row["force"] for row in pos_force_rows], dtype=float)
         elif self.experiment == "predetermined training":
-            pos_base = array([row["pos_meas"] for row in pos_force_rows], dtype=float)
+            pos_base = array([row["pos_update"] for row in pos_force_rows], dtype=float)
             pos_update = array([row["pos_update"] for row in pos_force_rows], dtype=float)
-            force_base = array([row["force_meas"] for row in pos_force_rows], dtype=float)
+            force_base = array([row["force_des"] for row in pos_force_rows], dtype=float)
         else:
             raise ValueError("init_dataset currently supports only training modes.")
 
@@ -216,7 +216,6 @@ class SupervisorClass:
                     self.desired_F_in_t[t_idx:t_idx+batch_size] = (force_base[selection])
                     t_idx += batch_size
             elif self.dataset_type == "predetermined":  # average force of full predetermined trajectory
-                # tip_pos = pos_base[0, :]
                 tip_pos = np.array([self.H*self.L*(1-margin), self.L*margin, self.norm_angle*margin])
                 print('tip_pos=', tip_pos)
                 desired_forces = np.mean(force_base, axis=0)

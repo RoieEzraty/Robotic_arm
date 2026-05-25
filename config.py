@@ -35,15 +35,17 @@ class VariabsConfig:
     norm_angle: float = 180.0
     theta_sim_to_robot: float = -1.0
 
-    limits_path: str = r"data\calibrations\arm limits in x y.xlsx"
+    limits_path: str = r"data\calibrations\arm limits in x y.xlsx"  # 2d points maximal tip values, approx. on radius
     tau_file: str = r"single_hinge_files\Mar12_dl90.csv"  # single hinge stress-strain
 
 
 @dataclass(frozen=True)
 class SprvsrConfig:
-    experiment: str = "training"
+    # experiment: str = "training"  # full training through robot
+    experiment: str = "predetermined training"  # training done in simulation, just implement on robot
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
+    # dataset_type: str = "None"
     # dataset_path: str = r"data\measurements\Feb18\0001to1000_2\dataset.csv"
     dataset_path: str = r"data\datasets\May22\arc\{}.csv"
 

@@ -279,59 +279,65 @@ def load_pos_force(path: str | Path) -> list[dict[str, object]]:
     -------
     list[dict[str, object]]. Parsed dataset rows.
     """
-    # initialize rows
     rows: list[dict[str, object]] = []
 
-    # go over file
     with Path(path).open(newline="", encoding="utf-8") as file_obj:
-        # read file
         reader = csv.DictReader(file_obj)
 
         if reader.fieldnames is None:
             return rows
 
-        # booleans. These are optional data in file
-        has_time = "t_unix" in reader.fieldnames
-        has_deg = "tip_angle_deg" in reader.fieldnames
-        has_rad = "tip_angle_rad" in reader.fieldnames
-        has_update = "upd_x_tip" in reader.fieldnames
+        fieldnames = set(reader.fieldnames)
+
+        has_time = ("t" in fieldnames) or ("t_unix" in fieldnames)
+        has_deg = "tip_angle_deg" in fieldnames
+        has_rad = "tip_angle_rad" in fieldnames
+
+        has_meas = any(col in fieldnames for col in ("pos_x", "x_tip", "Px"))
+        has_force = any(col in fieldnames for col in ("force_x", "F_x", "Fx"))
+
+        has_update = "upd_x_tip" in fieldnames
+        has_force_meas = ("Fx_meas" in fieldnames) and ("Fy_meas" in fieldnames)
+        has_force_des = ("Fx_des" in fieldnames) and ("Fy_des" in fieldnames)
 
         for record in reader:
-            x = _get_first_in_file(record, ["pos_x", "x_tip", "Px"], name="x")
-            y = _get_first_in_file(record, ["pos_y", "y_tip", "Py"], name="y")
+            row: dict[str, object] = {}
 
-            if has_deg and record["tip_angle_deg"] != "":
-                theta_deg = float(record["tip_angle_deg"])
-            elif has_rad and record["tip_angle_rad"] != "":
-                theta_deg = float(np.rad2deg(float(record["tip_angle_rad"])))
-            else:
-                raise ValueError(
-                    "File must contain either 'tip_angle_deg' or 'tip_angle_rad'.",
-                )
+            if has_meas:
+                x = _get_first_in_file(record, ["pos_x", "x_tip", "Px"], name="x")
+                y = _get_first_in_file(record, ["pos_y", "y_tip", "Py"], name="y")
 
-            if has_update:
-                row: dict[str, object] = {
-                    "pos_meas": (x, y, theta_deg),
-                    "force_meas": (float(record["Fx_meas"]), float(record["Fy_meas"])),
-                    "pos_update": (
-                        float(record["upd_x_tip"]),
-                        float(record["upd_y_tip"]),
-                        float(record["upd_tip_angle"]),
-                    ),
-                    "force_des": (float(record["Fx_des"]), float(record["Fy_des"])),
-                }
-            else:
+                if has_deg and record["tip_angle_deg"] != "":
+                    theta_deg = float(record["tip_angle_deg"])
+                elif has_rad and record["tip_angle_rad"] != "":
+                    theta_deg = float(np.rad2deg(float(record["tip_angle_rad"])))
+
+                if has_update:
+                    row["pos_meas"] = (x, y, theta_deg)
+                else:
+                    row["pos"] = (x, y, theta_deg)
+
+            if has_force:
                 Fx = _get_first_in_file(record, ["force_x", "F_x", "Fx"], name="Fx")
                 Fy = _get_first_in_file(record, ["force_y", "F_y", "Fy"], name="Fy")
-                row = {
-                    "pos": (x, y, theta_deg),
-                    "force": (Fx, Fy),
-                }
+                row["force"] = (Fx, Fy)
 
-            if has_time and record["t_unix"] != "":
-                row["t_unix"] = float(record["t_unix"])
+            if has_force_meas:
+                row["force_meas"] = (float(record["Fx_meas"]), float(record["Fy_meas"]))
+
+            if has_update:
+                row["pos_update"] = (float(record["upd_x_tip"]),
+                                     float(record["upd_y_tip"]),
+                                     float(record["upd_tip_angle"]))
+
+            if has_force_des:
+                row["force_des"] = (float(record["Fx_des"]), float(record["Fy_des"]))
+
+            if has_time:
+                t = _get_first_in_file(record, ["t", "t_unix"], name="t")
+                row["t"] = float(t) if t != "" else None
             else:
-                row["t_unix"] = None
+                row["t"] = None
 
             rows.append(row)
 

@@ -275,8 +275,8 @@ class MecaClass:
         self.robot.WaitIdle()
         logger.info("Robot done moving")
 
-    def move_pos_w_mid(self, points: NDArray[np.float64], Sprvsr: Optional["SupervisorClass"] = None,
-                       Snsr: Optional["ForsentekClass"] = None) -> bool:
+    def move_pos_w_mid(self, points: NDArray[np.float64], Sprvsr=None, Snsr=None,
+                       verbose: bool = False) -> bool:
         """Move to either 3-DOF simulation target or 6-DOF robot target.
 
         Parameters
@@ -305,7 +305,7 @@ class MecaClass:
         if np.size(points) == 3:
             if Sprvsr is None:
                 raise ValueError("Sprvsr must be provided when moving with a 3-DOF target.")
-            point_sanit = self.sanitize_target(points, Sprvsr)
+            point_sanit = self.sanitize_target(points, Sprvsr, verbose=verbose)
             target = self.pts_3_to_6(point_sanit)
         elif np.size(points) == 6:
             target_arr = np.asarray(points, dtype=float).copy()
@@ -478,14 +478,15 @@ class MecaClass:
         return self.theta_sim_to_robot * float(theta_robot_deg)  # invert CW->CCW
 
     def sanitize_target(self, points3: NDArray[np.float64] | tuple[float, ...] | list[float],
-                        Sprvsr: "SupervisorClass") -> NDArray[np.float64]:
+                        Sprvsr: "SupervisorClass", verbose: bool = False) -> NDArray[np.float64]:
         """Clamp a 3-DOF target to allowed workspace limits."""
         x, y, theta_z = map(float, points3)
-        x, y = self.clamp_to_circle_xy(x, y, theta_z, Sprvsr)
+        x, y = self.clamp_to_circle_xy(x, y, theta_z, Sprvsr, verbose=verbose)
         return np.array([x, y, theta_z])
 
     def clamp_to_circle_xy(self, x: float, y: float, theta_z: float, Sprvsr: "SupervisorClass",
-                           robot_margin: float = 1.0, chain_margin: float = 3.0) -> tuple[float, float]:
+                           robot_margin: float = 1.0, chain_margin: float = 3.0,
+                           verbose: bool = False) -> tuple[float, float]:
         """Clamp planar coordinates to robot and chain workspace constraints.
         If (x,y) is outside the circle of radius (R-margin), project it to the nearest point on the circle.
 
@@ -506,8 +507,9 @@ class MecaClass:
         Sprvsr.total_angle = helpers.get_total_angle(Sprvsr.L, np.array([x, y]), prev_total_angle)  # [deg]
 
         # effective radius of chain
-        R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z)
-        print(f'effective Radius inside clamp_to_circle_xy = {R_eff}')
+        R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z, verbose=verbose)
+        if verbose:
+            print(f'effective Radius inside clamp_to_circle_xy = {R_eff}')
 
         x_tip, y_tip = helpers.TRF_to_robot_tip(x, y, theta_z, self.x_TRF)
         r_robot = np.hypot(x_tip+self.pos_origin[0], y_tip+self.pos_origin[1])
@@ -520,21 +522,23 @@ class MecaClass:
             scale = (R_eff - chain_margin) / r_chain
             x2 = x * scale
             y2 = y * scale
-            print(f'clamped from x={x},y={y} to x={x2},y={y2} due to chain revolusions')
-            print(f'since r_chain={r_chain}')
-            print(f'but maximal R_eff of chain={R_eff}')
+
+            if verbose:
+                print(f"clamped from x={x}, y={y} to x={x2}, y={y2} due to chain revolutions")
+                print(f"since r_chain={r_chain}")
+                print(f"but maximal R_eff of chain={R_eff}")
 
         # ------ robot radius constraints ------
         if r_robot >= (self.R_robot - robot_margin):
             scale = (self.R_robot - robot_margin) / r_robot
-            print('scale =', scale)
-            x3 = -self.pos_origin[0] + (x+self.pos_origin[0]) * scale
-            y3 = -self.pos_origin[1] + (y+self.pos_origin[1]) * scale
-            # x3 = x * scale
-            # y3 = y * scale
-            print(f'clamped from x={x},y={y} to x={x3},y={y3} due to robot limits')
-            print(f'since r_robot={r_robot}')
-            print(f'but maximal robot margins={self.R_robot}')
+            x3 = -self.pos_origin[0] + (x + self.pos_origin[0]) * scale
+            y3 = -self.pos_origin[1] + (y + self.pos_origin[1]) * scale
+
+            if verbose:
+                print("scale =", scale)
+                print(f"clamped from x={x}, y={y} to x={x3}, y={y3} due to robot limits")
+                print(f"since r_robot={r_robot}")
+                print(f"but maximal robot margins={self.R_robot}")
 
         # clamp to minimal radius detected
         x_clamp = np.nanmin(np.array([x, x2, x3], dtype=float))
