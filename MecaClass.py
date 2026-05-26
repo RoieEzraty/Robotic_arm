@@ -166,7 +166,7 @@ class MecaClass:
 
         # apply hyperparams from config
         logger.info("Applying config parameters")
-        robot_helpers.apply_motion_config(self.robot, self.CFG)
+        robot_helpers.apply_motion_config(self.robot, self.CFG, profile="update")
         logger.info("Config parameters done")
 
         # set offset due to force sensor and gripper
@@ -301,6 +301,10 @@ class MecaClass:
         The original behavior is unchanged if ``Snsr`` or ``force_threshold`` is omitted.
         """
         target: tuple[float, float, float, float, float, float]
+
+        # print(f'CartLinVel={self.robot.GetCartLinVel()}')
+        # print(f'CartAnglVel={self.robot.GetCartAngVel()}')
+        # print(f'CartAcc={self.robot.GetCartAcc()}')
 
         if np.size(points) == 3:
             if Sprvsr is None:

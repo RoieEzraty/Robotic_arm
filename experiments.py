@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Callable, Union, Optional
 from datetime import datetime   
 
-import plot_func, file_helpers, helpers
+import plot_func, file_helpers, helpers, robot_helpers
 
 if TYPE_CHECKING:
     from Logger import Logger
@@ -52,28 +52,34 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
     tuple[NDArray[np.float64], NDArray[np.float64]] 
         ``x_y_theta_vec`` of shape ``(N, 3)`` and measured global force array ``F_vec`` of shape ``(N, 2)``.
     """
-    m.set_frames(mod="training")
+    m.set_frames(mod="training")  # set robot frames
 
-    # ------ load positions from file if path provided and generate tip positions ------
-    x_y_theta_vec = _build_sweep_positions(x_range=x_range, y_range=y_range, theta_range=theta_range,
-                                           N=N, path=path)
-    n_points = int(x_y_theta_vec.shape[0])
+    robot_helpers.apply_motion_config(m.robot, m.CFG, profile="measurement")  # fast movement
 
-    # ------ sweep and measure forces ------
-    # empty force vector along sweep trajectory
-    F_vec = np.zeros((n_points, 2), dtype=float)
-    for i, pos in enumerate(x_y_theta_vec):
-        # move arm
-        if not supress_prints:
-            print(f"moving robot to pos={pos}")
-        m.move_pos_w_mid(pos, Sprvsr, Snsr, verbose=False)
+    try:
+        # ------ load positions from file if path provided and generate tip positions ------
+        x_y_theta_vec = _build_sweep_positions(x_range=x_range, y_range=y_range, theta_range=theta_range,
+                                               N=N, path=path)
+        n_points = int(x_y_theta_vec.shape[0])
 
-        # record force
-        if not supress_prints:
-            print("recording force")
-        force_in_t, _ = Snsr.measure()
-        Sprvsr.global_force(Snsr, m)  # rotate to global frame
-        F_vec[i, :] = np.array([Sprvsr.Fx, Sprvsr.Fy], dtype=float)  # insert in vector
+        # ------ sweep and measure forces ------
+        # empty force vector along sweep trajectory
+        F_vec = np.zeros((n_points, 2), dtype=float)
+        for i, pos in enumerate(x_y_theta_vec):
+            # move arm
+            if not supress_prints:
+                print(f"moving robot to pos={pos}")
+            m.move_pos_w_mid(pos, Sprvsr, Snsr, verbose=False)
+
+            # record force
+            if not supress_prints:
+                print("recording force")
+            force_in_t, _ = Snsr.measure()
+            Sprvsr.global_force(Snsr, m)  # rotate to global frame
+            F_vec[i, :] = np.array([Sprvsr.Fx, Sprvsr.Fy], dtype=float)  # insert in vector
+
+    finally:
+        robot_helpers.apply_motion_config(m.robot, m.CFG, profile="update")
 
     if not supress_prints:
         print("finished logging force measurements")

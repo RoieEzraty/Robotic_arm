@@ -9,13 +9,29 @@ class VariabsConfig:
     # motion
     # lin_vel: float = 20.0  # good 2026March
     # ang_vel: float = 10.0  # good 2026March
-    lin_vel: float = 15.0  # for force listener 2026Apr
-    ang_vel: float = 2.5  # for force listener 2026Apr
-    lin_acc: float = 20.0
-    ang_acc: float = 20.0
-    vel: float = 10.0
-    acc: float = 20.0
-    blending: int = 0
+    # lin_vel: float = 15.0  # for force listener 2026Apr
+    # ang_vel: float = 2.5  # for force listener 2026Apr
+    # lin_acc: float = 20.0
+    # ang_acc: float = 20.0
+    joints_vel_update: float = 10.0  # joints
+    joints_acc_update: float = 20.0  # joints
+
+    # motion: slow / update / force-sensitive
+    lin_vel_update: float = 12.0       # mm/s
+    lin_acc_update: float = 12.0       # mm/s^2
+    ang_vel_update: float = 10.0       # deg/s
+    ang_acc_update: float = 10.0       # deg/s^2
+    # acc_update: float = 20.0           # percent, affects both linear + angular accel
+
+    # motion: fast / measurement sweep
+    lin_vel_measurement: float = 35.0  # mm/s
+    lin_acc_measurement: float = 35.0  # mm/s^2
+    ang_vel_measurement: float = 10.0  # deg/s
+    ang_acc_measurement: float = 10.0  # deg/s^2
+    # acc_measurement: float = 20.0      # percent
+
+    blending_update: int = 0
+    blending_measurement: int = 0
 
     # position / geometry
     load_cell_thick: float = 18.0

@@ -6,17 +6,29 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def apply_motion_config(robot: Any, CFG: Any) -> None:
+def apply_motion_config(robot: Any, CFG: Any, profile: str = "update") -> None:
     """Apply motion-related configuration values to a Mecademic robot instance.
-    Used in MecaClass.connect()
+
+    Parameters
+    ----------
+    robot   : Mecademic robot instance.
+    CFG     : Project config object.
+    profile : {"default", "measurement", "update"}.
+              Selects which velocity set to apply.
     """
 
+    suffix = f"_{profile}"
+
     def getfloat(key: str, default: float | None = None) -> float | None:
-        value = getattr(CFG.Variabs, key, default)
+        value = getattr(CFG.Variabs, key + suffix, None)
+        if value is None:
+            value = getattr(CFG.Variabs, key, default)
         return None if value is None else float(value)
 
     def getint(key: str, default: int | None = None) -> int | None:
-        value = getattr(CFG.Variabs, key, default)
+        value = getattr(CFG.Variabs, key + suffix, None)
+        if value is None:
+            value = getattr(CFG.Variabs, key, default)
         return None if value is None else int(value)
 
     def call_if_exists(method_name: str, *args: object) -> bool:
@@ -27,31 +39,37 @@ def apply_motion_config(robot: Any, CFG: Any) -> None:
             return True
         return False
 
-    # Cartesian coords
-    lin_vel = getfloat("lin_vel")  # linear velocity
+    lin_vel = getfloat("lin_vel")
     if lin_vel is not None:
         call_if_exists("SetCartLinVel", lin_vel)
 
-    lin_acc = getfloat("lin_acc")  # linear acceleration
+    lin_acc = getfloat("lin_acc")
     if lin_acc is not None:
         call_if_exists("SetCartLinAcc", lin_acc)
 
-    # Joints
-    jvel = getfloat("vel")  # joint velocity
+    # optional, only if your API supports angular cartesian settings
+    ang_vel = getfloat("ang_vel")
+    if ang_vel is not None:
+        call_if_exists("SetCartAngVel", ang_vel)
+
+    ang_acc = getfloat("ang_acc")
+    if ang_acc is not None:
+        call_if_exists("SetCartAngAcc", ang_acc)
+
+    jvel = getfloat("joints_vel")
     if jvel is not None:
         (call_if_exists("SetJointVel", jvel)
          or call_if_exists("SetJointsVel", jvel)
          or call_if_exists("SetJointVelPct", jvel)
          or call_if_exists("SetJointsVelPct", jvel))
 
-    jacc = getfloat("acc")  # joint acceleration
+    jacc = getfloat("joints_acc")
     if jacc is not None:
         (call_if_exists("SetJointAcc", jacc)
          or call_if_exists("SetJointsAcc", jacc)
          or call_if_exists("SetJointAccPct", jacc)
          or call_if_exists("SetJointsAccPct", jacc))
 
-    # Mecademic blending between multiple consecutive motions
     blending = getint("blending")
     if blending is not None:
         call_if_exists("SetBlending", blending)

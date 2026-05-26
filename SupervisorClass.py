@@ -227,9 +227,9 @@ class SupervisorClass:
             else:
                 raise ValueError(f"Unsupported dataset type: {self.dataset_type}")
         else:  # straight from the file
-            self.pos_in_t = pos_base[1:, :]
-            self.desired_F_in_t = force_base[1:, :]
-            self.pos_update_in_t = pos_update[1:, :]
+            self.pos_in_t = pos_base
+            self.desired_F_in_t = force_base
+            self.pos_update_in_t = pos_update
 
     def draw_measurement(self, t: int) -> None:
         """Load the measurement pose at step ``t`` into ``self.pos``.
