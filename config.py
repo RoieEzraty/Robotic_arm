@@ -51,7 +51,7 @@ class VariabsConfig:
     norm_angle: float = 180.0
     theta_sim_to_robot: float = -1.0
 
-    limits_path: str = r"data\calibrations\arm limits in x y.xlsx"  # 2d points maximal tip values, approx. on radius
+    limits_path: str = r"data\calibrations\arm limits in x y.xlsx"  # 2d points maximal tip vals, approx. on radius
     tau_file: str = r"single_hinge_files\Mar12_dl90.csv"  # single hinge stress-strain
 
 
@@ -62,8 +62,9 @@ class SprvsrConfig:
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
     # dataset_type: str = "None"
-    # dataset_path: str = r"data\measurements\Feb18\0001to1000_2\dataset.csv"
-    dataset_path: str = r"data\datasets\May22\arc\{}.csv"
+    sweep_path: str = r"data/datasets/May27/short_arc/example_traj.csv"
+    desired_path: str = r"data/datasets/May27/short_arc/{}.csv"
+    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHine_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
@@ -83,8 +84,8 @@ class SprvsrConfig:
     T: int = 16
     rand_key_dataset: int = 16
     alpha: float = 0.2  # [dimless]
-    init_buckle: tuple[int, ...] = "0000"
-    desired_buckle: tuple[int, ...] = "0001"
+    init_buckle: tuple[int, ...] = "1100"
+    desired_buckle: tuple[int, ...] = "0101"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)
@@ -124,10 +125,21 @@ class SnsrConfig:
 
 
 @dataclass(frozen=True)
+class CameraConfig:
+    camera_id = 0
+    fps = 10  # [Hz]
+    width: int = 1280  # [pixels]?
+    height: int = 720
+
+
+
+
+@dataclass(frozen=True)
 class Config:
     Variabs: VariabsConfig = field(default_factory=VariabsConfig)
     Sprvsr: SprvsrConfig = field(default_factory=SprvsrConfig)
     Snsr: SnsrConfig = field(default_factory=SnsrConfig)
+    Camera: CameraConfig = field(default_factory=CameraConfig)
 
 
 CFG = Config()

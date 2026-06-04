@@ -302,10 +302,6 @@ class MecaClass:
         """
         target: tuple[float, float, float, float, float, float]
 
-        # print(f'CartLinVel={self.robot.GetCartLinVel()}')
-        # print(f'CartAnglVel={self.robot.GetCartAngVel()}')
-        # print(f'CartAcc={self.robot.GetCartAcc()}')
-
         if np.size(points) == 3:
             if Sprvsr is None:
                 raise ValueError("Sprvsr must be provided when moving with a 3-DOF target.")
@@ -319,10 +315,25 @@ class MecaClass:
             logger.info("position given is not x, y, theta_z or 6 DOFs")
             return False
 
-        # here previously was "correct for too big a twist"
+        # move midway if angle too big
+        cur = tuple(self.robot.GetPose())
+        print('current pos=', cur)
+        delta_angle = target[5] - cur[5]
+        print('delta_angle=', delta_angle)
+        attempts = 0
+        while np.abs(delta_angle) > 180 and attempts < 4:
+            target_mid = tuple(np.asarray(cur) + (np.asarray(target) - np.asarray(cur))/2)
+            print('moving to mid=', target_mid)
+            completed = self.move_lin_or_pose(target_mid, Snsr, mod="lin")
+            if not completed:
+                self._get_current_pos()
+                return False
+            cur = tuple(self.robot.GetPose())
+            print('current pos=', cur)
+            delta_angle = target[5] - cur[5]
+            attempts += 1 
 
         # move one final time
-        # self.move_lin_split(target)
         completed = self.move_lin_or_pose(target, Snsr, mod='lin')
         if completed:
             self.current_pos = self.pts_6_to_3(target)

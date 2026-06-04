@@ -61,6 +61,7 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
 
     # ===== bottom: MSE loss =====
     axs[1].plot(t[sl], loss_MSE[sl], color=colors_lst[0], label="loss MSE")
+    axs[1].plot(t[sl], np.zeros(len(t[sl])), color=colors_lst[0], linestyle="--")
     axs[1].set_xlabel("t")
     axs[1].set_ylabel("Loss")
     axs[1].set_ylim([-2, 2])

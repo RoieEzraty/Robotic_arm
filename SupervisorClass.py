@@ -84,27 +84,15 @@ class SupervisorClass:
         self.experiment = str(CFG.Sprvsr.experiment)
         self.dataset_type = str(CFG.Sprvsr.dataset_type)
         self.update_scheme = str(CFG.Sprvsr.update_scheme)
-        self.dataset_path = str(CFG.Sprvsr.dataset_path.format(self.init_buckle))
+        self.sweep_path = str(CFG.Sprvsr.sweep_path)
+
+        if self.experiment == "predetermined training":
+            self.pretrained_path = str(CFG.Sprvsr.pretrained_path.format(self.init_buckle, self.desired_buckle))
+        else:
+            self.desired_path = str(CFG.Sprvsr.desired_path.format(self.init_buckle))
 
         # orientation
         self.origin_rel_to_sim = np.asarray(CFG.Sprvsr.origin_rel_to_sim, dtype=float)
-
-        # experiment-specific parameters
-        if self.experiment == "training":
-            self.T = int(CFG.Sprvsr.T)
-            self.rand_key_dataset = int(CFG.Sprvsr.rand_key_dataset)
-            self.alpha = float(CFG.Sprvsr.alpha)
-        elif self.experiment == "predetermined training":
-            self.T = self._infer_T_from_dataset(self.dataset_path)
-            self.alpha = float(CFG.Sprvsr.alpha)
-        elif self.experiment == "sweep":
-            self.T = int(CFG.Sprvsr.sweep_T)
-            self.x_range = int(CFG.Sprvsr.x_range)
-            self.y_range = int(CFG.Sprvsr.y_range)
-            self.theta_range = int(CFG.Sprvsr.theta_range)
-            self.alpha = float(CFG.Sprvsr.alpha)
-        else:
-            raise ValueError(f"Unsupported experiment mode: {self.experiment}")
 
         # tip motion parameters
         self.normalize_step = CFG.Sprvsr.normalize_step
@@ -129,15 +117,6 @@ class SupervisorClass:
         self.convert_F = float(CFG.Sprvsr.convert_F)
         self.norm_pos = CFG.Variabs.norm_length
         self.norm_angle = CFG.Variabs.norm_angle
-
-        # initialize empty parameters in t
-        self.F_in_t = np.zeros((self.T, 2), dtype=float)
-        self.desired_F_in_t = np.zeros((self.T, 2), dtype=float)
-        self.pos_update_in_t = np.zeros((self.T, 3), dtype=float)
-        self.total_angle_update_in_t = np.zeros(self.T, dtype=float)
-        self.loss_in_t = np.zeros((self.T, 2), dtype=float)
-        self.loss_MSE_in_t = np.zeros(self.T, dtype=float)
-        self.pos_in_t = np.zeros((self.T, 3), dtype=float)
         
         # initialize instantaneous parameters
         self.pos = np.zeros(3, dtype=float)
@@ -149,8 +128,10 @@ class SupervisorClass:
         # prints during run if True
         self.supress_prints = supress_prints
 
-    def init_dataset(self, dataset_path: str = "dataset.csv", out_path: str = "dataset.csv",
-                     measure_des: bool = False, margin: float = 0.025, m: Optional["MecaClass"] = None,
+    def init_dataset(self, CFG: Optional["Config"] = None, sweep_path: str = "dataset.csv",
+                     desired_path: Optional[str] = None, pretrained_path: Optional[str] = None,
+                     out_path: str = "dataset.csv", wire: int = 0, measure_des: bool = False, 
+                     margin: float = 0.025, m: Optional["MecaClass"] = None,
                      Snsr: Optional["ForsentekClass"] = None) -> None:
         """Initialize tip Measurement values for current experiment.
 
@@ -161,6 +142,31 @@ class SupervisorClass:
         measure_des  : If ``True``, measure desired forces for training configuration, write to ``out_path``.
         margin       : float, fraction of normalized length and angle just to negate straight chain
         """
+        # experiment-specific parameters
+        if self.experiment == "training":
+            self.T = int(CFG.Sprvsr.T)
+            self.rand_key_dataset = int(CFG.Sprvsr.rand_key_dataset)
+            self.alpha = float(CFG.Sprvsr.alpha)
+        elif self.experiment == "predetermined training":
+            self.T = self._infer_T_from_dataset(pretrained_path)
+            self.alpha = float(CFG.Sprvsr.alpha)
+        elif self.experiment == "sweep":
+            self.T = int(CFG.Sprvsr.sweep_T)
+            self.x_range = int(CFG.Sprvsr.x_range)
+            self.y_range = int(CFG.Sprvsr.y_range)
+            self.theta_range = int(CFG.Sprvsr.theta_range)
+            self.alpha = float(CFG.Sprvsr.alpha)
+        else:
+            raise ValueError(f"Unsupported experiment mode: {self.experiment}")
+
+        # initialize empty parameters in t
+        self.F_in_t = np.zeros((self.T, 2), dtype=float)
+        self.desired_F_in_t = np.zeros((self.T, 2), dtype=float)
+        self.pos_update_in_t = np.zeros((self.T, 3), dtype=float)
+        self.total_angle_update_in_t = np.zeros(self.T, dtype=float)
+        self.loss_in_t = np.zeros((self.T, 2), dtype=float)
+        self.loss_MSE_in_t = np.zeros(self.T, dtype=float)
+        self.pos_in_t = np.zeros((self.T, 3), dtype=float)
 
         # ------- optionally measure the dataset ------
         if measure_des:
@@ -169,19 +175,25 @@ class SupervisorClass:
             print("measuring desired forces in training configuration solely")
 
             # measurement experiment
-            pos_base, force_base = experiments.sweep_measurement_fixed_origami(m, Snsr, self, path=dataset_path)
+            pos_base, force_base = experiments.sweep_measurement_fixed_origami(m, Snsr, self, path=sweep_path)
+            desired_forces = np.mean(force_base, axis=0)
+            desired_forces = np.tile(desired_forces, (self.T, 1))
 
             # write to file, do not save in self
             file_helpers.write_supervisor_dataset(pos_base, force_base, out_path)
 
+        if self.experiment == "predetermined training":  # load all training from file 
+            pos_force_rows = file_helpers.load_pos_force(pretrained_path)
+        else:  # from path where only desired are present
+            if measure_des:
+                # use forces you just saved to output file
+                pos_force_rows = file_helpers.load_pos_force(out_path)
+            else:
+                pos_force_rows = file_helpers.load_pos_force(desired_path)
+
         # ------- load dataset regardless of measurement ------
         if self.experiment == "training":
             rng = np.random.default_rng(self.rand_key_dataset)
-
-        if measure_des:  # use forces you just saved to output file
-            pos_force_rows = file_helpers.load_pos_force(out_path)
-        else:  # import from file
-            pos_force_rows = file_helpers.load_pos_force(dataset_path)
 
         if self.experiment == "training":
             pos_base = array([row["pos"] for row in pos_force_rows], dtype=float)
@@ -189,7 +201,10 @@ class SupervisorClass:
         elif self.experiment == "predetermined training":
             pos_base = array([row["pos_update"] for row in pos_force_rows], dtype=float)
             pos_update = array([row["pos_update"] for row in pos_force_rows], dtype=float)
-            force_base = array([row["force_des"] for row in pos_force_rows], dtype=float)
+            if measure_des:
+                pass
+            else:
+                desired_forces = array([row["force_des"] for row in pos_force_rows], dtype=float)
         else:
             raise ValueError("init_dataset currently supports only training modes.")
 
@@ -228,7 +243,7 @@ class SupervisorClass:
                 raise ValueError(f"Unsupported dataset type: {self.dataset_type}")
         else:  # straight from the file
             self.pos_in_t = pos_base
-            self.desired_F_in_t = force_base
+            self.desired_F_in_t = desired_forces
             self.pos_update_in_t = pos_update
 
     def draw_measurement(self, t: int) -> None:
@@ -564,7 +579,7 @@ class SupervisorClass:
         int, number of training steps in file.
         """
         with Path(dataset_path).open("r", encoding="utf-8") as file_obj:
-            return sum(1 for _ in file_obj) - 2
+            return sum(1 for _ in file_obj) - 1
 
     def _restart_flat_with_y_bias(self, t: int, side_sign: float) -> None:
         """
