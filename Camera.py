@@ -30,13 +30,13 @@ class Camera:
         self.fps = float(CFG.Camera.fps)
         self.dt = 1.0 / self.fps
 
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        Path("videos").mkdir(parents=True, exist_ok=True)
         if out_path is None:
-            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            Path("videos").mkdir(parents=True, exist_ok=True)
-            self.out_path = Path("videos") / f"training_video_{ts}.mp4"
+            self.out_path_w_ending = Path("videos") / f"training_video_{ts}.mp4"
         else:
-            self.out_path = Path(out_path)
-            self.out_path.parent.mkdir(parents=True, exist_ok=True)
+            self.out_path_w_ending = Path("videos") / str(out_path + f"_{ts}.mp4")
+            self.out_path_w_ending.parent.mkdir(parents=True, exist_ok=True)
 
         self.width = int(CFG.Camera.width)
         self.height = int(CFG.Camera.height)
@@ -46,8 +46,15 @@ class Camera:
         self.thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
 
-    def start(self) -> None:
+    def start(self, out_path: Optional[str] = None) -> None:
         """Open camera and start background recording."""
+        if out_path:
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            out_path_w_ending = Path("videos") / str(out_path + f"_{ts}.mp4")
+        else:
+            out_path_w_ending = self.out_path_w_ending
+
+
         self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
 
         if self.width is not None:
@@ -63,7 +70,7 @@ class Camera:
 
         h, w = frame.shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.writer = cv2.VideoWriter(str(self.out_path), fourcc, self.fps, (w, h))
+        self.writer = cv2.VideoWriter(str(out_path_w_ending), fourcc, self.fps, (w, h))
 
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._loop, daemon=True)

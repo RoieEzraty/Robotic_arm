@@ -64,7 +64,8 @@ class SprvsrConfig:
     # dataset_type: str = "None"
     sweep_path: str = r"data/datasets/May27/short_arc/example_traj.csv"
     desired_path: str = r"data/datasets/May27/short_arc/{}.csv"
-    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHine_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
+    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il (1)/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHine_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
+    # pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHine_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
@@ -84,8 +85,8 @@ class SprvsrConfig:
     T: int = 16
     rand_key_dataset: int = 16
     alpha: float = 0.2  # [dimless]
-    init_buckle: tuple[int, ...] = "1100"
-    desired_buckle: tuple[int, ...] = "0101"
+    init_buckle: tuple[int, ...] = "0011"
+    desired_buckle: tuple[int, ...] = "1000"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)
@@ -103,7 +104,8 @@ class SprvsrConfig:
 
 @dataclass(frozen=True)
 class SnsrConfig:
-    DEV: str = "Dev1"
+    # DEV: str = "Dev1"  # up to 2026Jun3
+    DEV: str = "Dev3"  # 2026Jun4
     Channel_x: str = "ai1"
     Channel_y: str = "ai2"
     Channel_z: str = "ai3"
@@ -127,7 +129,7 @@ class SnsrConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     camera_id = 0
-    fps = 10  # [Hz]
+    fps = 1  # [Hz]
     width: int = 1280  # [pixels]?
     height: int = 720
 

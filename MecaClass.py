@@ -315,20 +315,20 @@ class MecaClass:
             logger.info("position given is not x, y, theta_z or 6 DOFs")
             return False
 
-        # move midway if angle too big
-        cur = tuple(self.robot.GetPose())
+        # # move midway if angle too big
+        cur = self.pts_3_to_6(self.current_pos)
         print('current pos=', cur)
         delta_angle = target[5] - cur[5]
         print('delta_angle=', delta_angle)
         attempts = 0
         while np.abs(delta_angle) > 180 and attempts < 4:
-            target_mid = tuple(np.asarray(cur) + (np.asarray(target) - np.asarray(cur))/2)
+            target_mid = tuple(np.asarray(cur) + (np.asarray(target) - np.asarray(cur))*1/2)
             print('moving to mid=', target_mid)
             completed = self.move_lin_or_pose(target_mid, Snsr, mod="lin")
             if not completed:
                 self._get_current_pos()
                 return False
-            cur = tuple(self.robot.GetPose())
+            cur = target_mid
             print('current pos=', cur)
             delta_angle = target[5] - cur[5]
             attempts += 1 

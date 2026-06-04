@@ -20,7 +20,7 @@ plt.rcParams["axes.prop_cycle"] = plt.cycler("color", colors_lst)
 
 
 def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int] = None,
-                         save: bool = False) -> None:
+                         save: bool = False, output_name: Optional[str] = None) -> None:
     """Plot measured/designed forces and loss from an exported training CSV.
 
     Parameters
@@ -71,7 +71,9 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
 
     plt.tight_layout()
     if save:
-        plt.savefig("importants.png", dpi=300, bbox_inches="tight")
+        if output_name is None:
+            output_name = "importants.png"
+        plt.savefig(output_name, dpi=300, bbox_inches="tight")
     plt.show()
 
 
