@@ -85,8 +85,8 @@ class SprvsrConfig:
     T: int = 16
     rand_key_dataset: int = 16
     alpha: float = 0.2  # [dimless]
-    init_buckle: tuple[int, ...] = "0011"
-    desired_buckle: tuple[int, ...] = "1000"
+    init_buckle: str = "0011"
+    desired_buckle: str = "1000"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)

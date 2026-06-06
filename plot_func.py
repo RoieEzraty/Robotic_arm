@@ -25,12 +25,13 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
 
     Parameters
     ----------
-    file_path : str. Path to CSV file, typically created by ``file_helpers.export_training_csv()``.
-    init_t    : int, optional. First plotted time index.
-    final_t   : int | None, optional. Final plotted time index (exclusive). If omitted, plots until the end.
-    save      : bool, optional. If ``True``, save figure as ``importants.png``.
+    file_path   : str. Path to CSV file, typically created by ``file_helpers.export_training_csv()``.
+    init_t      : int, optional. First plotted time index.
+    final_t     : int | None, optional. Final plotted time index (exclusive). If omitted, plots until the end.
+    save        : bool, optional. If ``True``, save figure as ``importants.png``.
+    output_name : str | None, optional. Output filename when ``save=True``.
     """
-    # read dataframe
+    # ------ read dataframe ------
     df = pd.read_csv(file_path)
 
     F_measured = np.vstack([df["F_x_meas"].to_numpy(dtype=float),
@@ -38,6 +39,13 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
     F_desired = np.vstack([df["F_x_des"].to_numpy(dtype=float),
                            df["F_y_des"].to_numpy(dtype=float)])  # shape (2, T)
     loss_MSE = df["loss_MSE"].to_numpy(dtype=float)
+
+    # optional force error margin from file
+    if "F_err" in df.columns:
+        F_err = np.vstack([df["F_err"].to_numpy(dtype=float),
+                           df["F_err"].to_numpy(dtype=float)])  # same error for x and y
+    else:
+        F_err = None
 
     # time steps
     T = int(F_measured.shape[1])
@@ -48,18 +56,29 @@ def importants_from_file(file_path: str, init_t: int = 0, final_t: Optional[int]
 
     fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(6, 6), gridspec_kw={"height_ratios": [1, 1]})
 
-    # ===== top: forces =====
+    # ------ top: forces ------
     axs[0].plot(t[sl], F_measured[0, sl], color=colors_lst[1], label="Fx measured")
     axs[0].plot(t[sl], F_desired[0, sl], color=colors_lst[1], linestyle="--", label="Fx desired")
 
     axs[0].plot(t[sl], F_measured[1, sl], color=colors_lst[2], label="Fy measured")
     axs[0].plot(t[sl], F_desired[1, sl], color=colors_lst[2], linestyle="--", label="Fy desired")
 
+    if F_err is not None:
+        axs[0].fill_between(t[sl],
+                            F_measured[0, sl] - F_err[0, sl],
+                            F_measured[0, sl] + F_err[0, sl],
+                            color=colors_lst[1], alpha=0.5, linewidth=0)
+
+        axs[0].fill_between(t[sl],
+                            F_measured[1, sl] - F_err[1, sl],
+                            F_measured[1, sl] + F_err[1, sl],
+                            color=colors_lst[2], alpha=0.5, linewidth=0)
+
     axs[0].set_ylabel("Force [mN]")
     axs[0].set_ylim([-200, 500])
     axs[0].legend(loc="best")
 
-    # ===== bottom: MSE loss =====
+    # ------ bottom: MSE loss ------
     axs[1].plot(t[sl], loss_MSE[sl], color=colors_lst[0], label="loss MSE")
     axs[1].plot(t[sl], np.zeros(len(t[sl])), color=colors_lst[0], linestyle="--")
     axs[1].set_xlabel("t")
