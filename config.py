@@ -52,7 +52,7 @@ class VariabsConfig:
     theta_sim_to_robot: float = -1.0
 
     limits_path: str = r"data\calibrations\arm limits in x y.xlsx"  # 2d points maximal tip vals, approx. on radius
-    tau_file: str = r"single_hinge_files\Mar12_dl90.csv"  # single hinge stress-strain
+    tau_file: str = r"single_hinge_files\May24_dl90_1stEnd.csv"  # single hinge stress-strain
 
 
 @dataclass(frozen=True)
@@ -104,8 +104,8 @@ class SprvsrConfig:
 
 @dataclass(frozen=True)
 class SnsrConfig:
-    # DEV: str = "Dev1"  # up to 2026Jun3
-    DEV: str = "Dev3"  # 2026Jun4
+    DEV: str = "Dev1"  # 2026June8
+    # DEV: str = "Dev3"  # 2026Jun4 other PC
     Channel_x: str = "ai1"
     Channel_y: str = "ai2"
     Channel_z: str = "ai3"
@@ -132,8 +132,6 @@ class CameraConfig:
     fps = 1  # [Hz]
     width: int = 1280  # [pixels]?
     height: int = 720
-
-
 
 
 @dataclass(frozen=True)
