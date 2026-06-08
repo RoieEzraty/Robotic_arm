@@ -130,7 +130,7 @@ def rotate_force_frame(force_in_t: NDArray[np.float64], tip_angle: float,) -> tu
 # ====================
 # Supervisor related
 # ====================
-def get_total_angle(L: float, tip_pos: NDArray[np.float64], prev_total_angle: float) -> float:
+def get_total_angle(L: float, tip_pos: NDArray[np.float64], prev_total_angle: float, origin="first_node") -> float:
     """Compute unwrapped total chain angle from current tip position.
     Used inside MecaClass.clamp_to_circle_xy()
 
@@ -157,8 +157,11 @@ def get_total_angle(L: float, tip_pos: NDArray[np.float64], prev_total_angle: fl
     prev_total_angle_rads = np.deg2rad(prev_total_angle)
 
     # origin from which to calculate angle
-    angle_origin = np.array([L, 0.0], dtype=float)
-    dx, dy = angle_origin - tip_pos_arr
+    if origin == "first_node":
+        origin_node = array([0, 0])
+    elif origin == "second_node":
+        origin_node = array([L, 0])
+    dx, dy = origin_node - tip_pos_arr  # displacement vector
 
     total_angle = np.arctan2(dy, dx) - np.pi  # angle addition
     total_angle = (total_angle + np.pi) % (2.0 * np.pi) - np.pi  # unwrap so angle can exceed 180
@@ -211,6 +214,66 @@ def fit_circle_xy(points_xy: NDArray[np.float64]) -> float:
     return float(radius)
 
 
+def _correct_big_stretch(tip_pos: NDArray[np.float64], tip_angle: float, total_angle: float, R_free: float,
+                         L: float, margin: float = 0.0, supress_prints: bool = True) -> NDArray[np.float64]:
+    """
+    Radially scale down tip position to maximal reachable radius constraint, if tip position exceeds it.
+    Applied to distance between node-before-tip and 2nd node (located at (L, 0)). Scale down is radial towards 2nd node.
+
+
+    Notes
+    -----
+    - Maximal allowed radius computed using R_eff = effective_radius(), accounting for coil wrap & geometric shrinkage.
+    - Imported straight from jax simulation 2026June8
+
+    Parameters
+    ----------
+    tip_pos : ndarray (2,), Initially proposed tip position.
+    tip_angle : float, Tip orientation (radians), measured CCW.
+    total_angle : float, Unwrapped accumulated chain angle (can exceed ±2π).
+    R_free : float, Nominal maximal free radius before shrink corrections.
+    L : float, Edge/facet length.
+    margin : float, optional, Additional safety factor (fraction of L) subtracted from effective radius.
+    supress_prints : bool, optional, If False, prints diagnostic information.
+
+    Returns
+    -------
+    tip_pos_corrected : ndarray, (2,), Corrected tip position if clamping applied, otherwise returns original tip_pos.
+    """
+    # Compute the location of the node before the tip
+    before_last = _get_before_tip(tip_pos, tip_angle, L)
+
+    # Second node from the base sits at (L, 0)
+    second_node = array([L, 0.0], dtype=float)
+
+    # chain current radius
+    disp = before_last - second_node
+    r_chain = np.hypot(disp[0], disp[1])
+    R_eff = effective_radius(R_free, L, total_angle, tip_angle, supress_prints=supress_prints)
+
+    if not supress_prints:
+        print(f'update vals before correction={tip_pos},{tip_angle}')
+        print(f'r_chain{r_chain}')
+        print(f'R_eff{R_eff}')
+
+    # # after Mar17
+    if r_chain <= max(0.0, R_eff - margin*L):
+        return tip_pos
+
+    # clamp BEFORE-TIP, not TIP
+    scale = (R_eff - margin*L) / r_chain
+    before_new = second_node + disp * scale
+
+    # reconstruct tip from clamped before-tip and prescribed tip angle
+    tip_new = before_new + L * np.array([np.cos(tip_angle), np.sin(tip_angle)], dtype=float)
+
+    if not supress_prints:
+        print(f"clamped from x={tip_pos[0]},y={tip_pos[1]} "
+              f"to x={tip_new[0]},y={tip_new[1]}")
+
+    return tip_new
+
+
 def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, margin: float = 0.0,
                      verbose: bool = False) -> float:
     """Compute the remaining effective chain radius after winding.
@@ -231,31 +294,57 @@ def effective_radius(R: float, L: float,  total_angle: float, tip_angle: float, 
     -------
     float, Effective allowed radius [mm], clipped at zero.
     """
-    # caution, prints and prelims.
-    if verbose:
-        print(f"total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}")
-    two_pi = 2.0 * np.pi
+    # Old up to 2026June8
+    # # caution, prints and prelims.
+    # if verbose:
+    #     print(f"total_angle={total_angle:.2f}, tip_angle={tip_angle:.2f}")
+    # two_pi = 2.0 * np.pi
 
-    # change in angle
-    delta = float(np.abs(np.deg2rad(total_angle) - np.deg2rad(tip_angle)))
+    # # change in angle
+    # delta = float(np.abs(np.deg2rad(total_angle) - np.deg2rad(tip_angle)))
 
-    # number of full revolutions
-    n_rev = int(np.floor(delta / two_pi))
-    rem = delta - n_rev * two_pi
+    # # number of full revolutions
+    # n_rev = int(np.floor(delta / two_pi))
+    # rem = delta - n_rev * two_pi
 
-    # effective chain radius shrink due to full tip revolutions
-    shrink_full = (2.0 * L) * n_rev
-    if verbose:
-        print("shrink due to revolutions", shrink_full)
+    # # effective chain radius shrink due to full tip revolutions
+    # shrink_full = (2.0 * L) * n_rev
+    # if verbose:
+    #     print("shrink due to revolutions", shrink_full)
 
-    # effective chain radius shrink due to partial tip revolutions
-    shrink_partial = L * (1.0 - np.cos(rem))
-    if verbose:
-        print("shrink remainder in [mm]", shrink_partial)
+    # # effective chain radius shrink due to partial tip revolutions
+    # shrink_partial = L * (1.0 - np.cos(rem))
+    # if verbose:
+    #     print("shrink remainder in [mm]", shrink_partial)
 
-    # sum both shrinks
-    shrink = shrink_full + shrink_partial
-    return float(max(0.0, (R - margin) - shrink))
+    # # sum both shrinks
+    # shrink = shrink_full + shrink_partial
+    # return float(max(0.0, (R - margin) - shrink))
+
+    # Straight import from jax simulations 2026June8
+
+    # Local mismatch between radial direction and last-edge direction.
+    # Use wrapped difference, not unwrapped difference, otherwise one extra 2π
+    # in total_angle looks like another full tip revolution.
+    gamma = abs(wrap_pi(tip_angle - total_angle))
+    shrink_local = L * (1.0 - np.cos(gamma / 2.0))   # <= L for gamma in [0, pi]
+
+    # Global winding penalty only after an actual near-full coil.
+    coil_start = 1*np.pi
+    excess_winding = max(0.0, abs(total_angle) - coil_start)
+    shrink_global = 1.0 * L * excess_winding / (2.0*np.pi)
+
+    # # Key change: do not add them.
+    # shrink = max(shrink_local, shrink_global)
+    # add them
+    shrink = shrink_local + shrink_global
+
+    if not verbose:
+        print("shrink local endpoint orientation", shrink_local)
+        print("shrink global winding", shrink_global)
+        print("chosen shrink", shrink)
+
+    return max(0.0, R - shrink)
 
 
 def coil(angle: float, revolutions: float = 1.5, units='deg'):
@@ -320,6 +409,10 @@ def swept_last_edge_crosses_first_edge(tip_prev: np.ndarray, angle_prev: float, 
 # -----------------------------------
 # Geometrical helpers inside helpers
 # -----------------------------------
+def wrap_pi(a: float) -> float:
+    return (a + np.pi) % (2*np.pi) - np.pi
+
+
 def _get_before_tip(tip_pos: NDArray, tip_angle: float, L: float, *, dtype=None):
     """
     Return coordinates of the node that is one before the tip given the position of the last node and tip angle

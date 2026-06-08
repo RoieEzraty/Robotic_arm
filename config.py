@@ -57,15 +57,14 @@ class VariabsConfig:
 
 @dataclass(frozen=True)
 class SprvsrConfig:
-    # experiment: str = "training"  # full training through robot
-    experiment: str = "predetermined training"  # training done in simulation, just implement on robot
+    experiment: str = "training"  # full training through robot
+    # experiment: str = "predetermined training"  # training done in simulation, just implement on robot
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
     # dataset_type: str = "None"
     sweep_path: str = r"data/datasets/May27/short_arc/example_traj.csv"
     desired_path: str = r"data/datasets/May27/short_arc/{}.csv"
-    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il (1)/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHine_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
-    # pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHine_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
+    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHinge1stEnd_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
@@ -84,7 +83,7 @@ class SprvsrConfig:
     # training
     T: int = 16
     rand_key_dataset: int = 16
-    alpha: float = 0.2  # [dimless]
+    alpha: float = 0.15  # [dimless]
     init_buckle: str = "0011"
     desired_buckle: str = "1000"
 

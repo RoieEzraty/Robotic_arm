@@ -114,6 +114,9 @@ class SupervisorClass:
         # chain and force
         self.L = float(CFG.Sprvsr.L)
         self.H = int(CFG.Sprvsr.H)
+        # R_free from simulations
+        E = (self.H + 1)
+        self.R_free_sim = (E - 2*0.98)*self.L  # max potentional chain radius, up to margin, from sims 2026June8
         self.convert_F = float(CFG.Sprvsr.convert_F)
         self.norm_pos = CFG.Variabs.norm_length
         self.norm_angle = CFG.Variabs.norm_angle
@@ -231,7 +234,10 @@ class SupervisorClass:
                     self.desired_F_in_t[t_idx:t_idx+batch_size] = (force_base[selection])
                     t_idx += batch_size
             elif self.dataset_type == "predetermined":  # average force of full predetermined trajectory
-                tip_pos = np.array([self.H*self.L*(1-margin), self.L*margin, self.norm_angle*margin])
+                # tip_pos = np.array([self.H*self.L*(1-margin), self.L*margin, self.norm_angle*margin])  # up to 2026June8
+                end = float((self.H+1)*self.L)
+                tip_pos = array([end, 0, 0.0], dtype=np.float32)
+
                 print('tip_pos=', tip_pos)
                 desired_forces = np.mean(force_base, axis=0)
                 print('force_base=', force_base)
@@ -410,6 +416,62 @@ class SupervisorClass:
             if not self.supress_prints:
                 print(f'total angle {total_angle}')
                 print(f'add delta tip angle {delta_total_angle} to correct for total angle ')
+
+        # ------ correct for too big a stretch ------
+        if self.update_scheme == 'pos':
+            # # If the raw x/y update exits the reachable disk, slide along the
+            # # effective-radius perimeter instead of radially projecting back.
+            # R_eff = helpers.effective_radius(self.R_free, Strctr.L, total_angle=total_angle,
+            #                                  tip_angle=float(self.tip_angle_update_in_t[t]),
+            #                                  supress_prints=self.supress_prints)
+            # before_prev = helpers._get_before_tip(prev_tip_update_pos, float(prev_tip_update_angle),
+            #                                       Strctr.L, xp=np)
+
+            # raw_tip_before_clamp = self.tip_pos_update_in_t[t, :].copy()
+
+            # # # clamp outside inner radius
+            # tip_new, _, clamped_inner = helpers.clamp_pos_same_delta(before_prev=before_prev,
+            #                                                          tip_angle_new=float(self.tip_angle_update_in_t[t]),
+            #                                                          tip_raw=self.tip_pos_update_in_t[t, :],
+            #                                                          second_node=array([Strctr.L, 0.0], dtype=float),
+            #                                                          R_lim=self.R_min, L=Strctr.L, mod="inner")
+
+            # # clamp outside outer radius
+            # tip_new, _, clamped_outer = helpers.clamp_pos_same_delta(before_prev=before_prev,
+            #                                                          tip_angle_new=float(self.tip_angle_update_in_t[t]),
+            #                                                          tip_raw=tip_new,
+            #                                                          second_node=array([Strctr.L, 0.0], dtype=float),
+            #                                                          R_lim=R_eff, L=Strctr.L, mod="outer",
+            #                                                          tip_update_prev=prev_tip_update_pos,
+            #                                                          raw_update_tip=delta_tip)
+
+            # if clamped_outer:
+            #     corrected_delta = tip_new - prev_tip_update_pos
+            #     print(
+            #         "outer clamp:",
+            #         "raw_delta=", delta_tip,
+            #         "corrected_delta=", corrected_delta,
+            #         "raw_dy=", delta_tip[1],
+            #         "corrected_dy=", corrected_delta[1],
+            #         "prev_y=", prev_tip_update_pos[1],
+            #     )
+
+            # self.tip_pos_update_in_t[t, :] = tip_new
+
+            # if not self.supress_prints:
+            #     if clamped_inner:
+            #         print(f'tip slid on effective inner radius to {self.tip_pos_update_in_t[t, :]}')
+
+            print('!!!Roie, please update for free tip, up until now it is only valid for updates through Force!!!')
+
+        else:
+            self.pos_update_in_t[t, :2] = helpers._correct_big_stretch(self.pos_update_in_t[t, :2],
+                                                                       np.deg2rad(self.pos_update_in_t[t, 2]),
+                                                                       np.deg2rad(total_angle), self.R_free_sim,
+                                                                       self.L, margin=0.1,
+                                                                       supress_prints=self.supress_prints)
+            if not self.supress_prints:
+                print(f'tip after correct big stretch={self.pos_update_in_t[t, :2]}')
 
         # ------ correct for coil or cut origin ------
         cond_coil = helpers.coil(self.pos_update_in_t[t, 2], revolutions=1.5)

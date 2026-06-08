@@ -126,7 +126,7 @@ class MecaClass:
         # allowed radius of motion, and offset origin
         self.R_robot = helpers.fit_circle_xy(pts_robot)
         print(f"Radius allowed due to robot margins, = {self.R_robot:.2f}")
-        self.R_chain = (Sprvsr.L - margin) * (Sprvsr.H + 1)
+        self.R_chain = (Sprvsr.L - margin) * (Sprvsr.H + 1)  # up until 2026June8
         print(f"Radius allowed due to chain length, = {self.R_chain:.2f}")
 
         # These will be assigned later under set_targets
@@ -522,7 +522,8 @@ class MecaClass:
         Sprvsr.total_angle = helpers.get_total_angle(Sprvsr.L, np.array([x, y]), prev_total_angle)  # [deg]
 
         # effective radius of chain
-        R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, Sprvsr.total_angle, theta_z, verbose=verbose)
+        R_eff = helpers.effective_radius(self.R_chain, Sprvsr.L, np.deg2rad(Sprvsr.total_angle), 
+                                         np.deg2rad(theta_z), verbose=verbose)
         if verbose:
             print(f'effective Radius inside clamp_to_circle_xy = {R_eff}')
 
