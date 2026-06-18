@@ -249,7 +249,7 @@ def _correct_big_stretch(tip_pos: NDArray[np.float64], tip_angle: float, total_a
     # chain current radius
     disp = before_last - second_node
     r_chain = np.hypot(disp[0], disp[1])
-    R_eff = effective_radius(R_free, L, total_angle, tip_angle, supress_prints=supress_prints)
+    R_eff = effective_radius(R_free, L, total_angle, tip_angle, verbose=supress_prints)
 
     if not supress_prints:
         print(f'update vals before correction={tip_pos},{tip_angle}')

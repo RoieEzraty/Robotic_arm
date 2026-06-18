@@ -57,13 +57,13 @@ class VariabsConfig:
 
 @dataclass(frozen=True)
 class SprvsrConfig:
-    experiment: str = "training"  # full training through robot
-    # experiment: str = "predetermined training"  # training done in simulation, just implement on robot
+    # experiment: str = "training"  # full training through robot
+    experiment: str = "predetermined training"  # training done in simulation, just implement on robot
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
     # dataset_type: str = "None"
     sweep_path: str = r"data/datasets/May27/short_arc/example_traj.csv"
-    desired_path: str = r"data/datasets/May27/short_arc/{}.csv"
+    desired_path: str = r"data/datasets/May27/short_arc/buckle={}.csv"
     pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHinge1stEnd_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
 
     # # BEASTAL update tip values
@@ -73,6 +73,9 @@ class SprvsrConfig:
 
     # normalize_step: bool = True
     normalize_step: bool = False
+
+    # include_measurement: bool = True
+    include_measurement: bool = False
 
     # sweep
     sweep_T: int = 12
@@ -84,8 +87,8 @@ class SprvsrConfig:
     T: int = 16
     rand_key_dataset: int = 16
     alpha: float = 0.15  # [dimless]
-    init_buckle: str = "0011"
-    desired_buckle: str = "1000"
+    init_buckle: str = "0001"
+    desired_buckle: str = "0000"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)
@@ -128,6 +131,7 @@ class SnsrConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     camera_id = 0
+    # camera_id = 1
     fps = 1  # [Hz]
     width: int = 1280  # [pixels]?
     height: int = 720

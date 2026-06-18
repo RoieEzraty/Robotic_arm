@@ -54,7 +54,6 @@ class Camera:
         else:
             out_path_w_ending = self.out_path_w_ending
 
-
         self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
 
         if self.width is not None:

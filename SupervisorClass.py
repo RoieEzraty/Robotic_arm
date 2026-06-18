@@ -85,6 +85,7 @@ class SupervisorClass:
         self.dataset_type = str(CFG.Sprvsr.dataset_type)
         self.update_scheme = str(CFG.Sprvsr.update_scheme)
         self.sweep_path = str(CFG.Sprvsr.sweep_path)
+        self.include_measurement = CFG.Sprvsr.include_measurement
 
         if self.experiment == "predetermined training":
             self.pretrained_path = str(CFG.Sprvsr.pretrained_path.format(self.init_buckle, self.desired_buckle))
@@ -164,6 +165,7 @@ class SupervisorClass:
 
         # initialize empty parameters in t
         self.F_in_t = np.zeros((self.T, 2), dtype=float)
+        self.F_update_in_t = np.zeros((self.T, 2), dtype=float)
         self.desired_F_in_t = np.zeros((self.T, 2), dtype=float)
         self.pos_update_in_t = np.zeros((self.T, 3), dtype=float)
         self.total_angle_update_in_t = np.zeros(self.T, dtype=float)
@@ -261,7 +263,7 @@ class SupervisorClass:
         """
         self.pos = self.pos_in_t[t, :].copy()
 
-    def global_force(self, Snsr: "ForsentekClass", m: "MecaClass", t: Optional[int] = None,
+    def global_force(self, Snsr: "ForsentekClass", m: "MecaClass", mod: str = 'meas', t: Optional[int] = None,
                      plot: bool = False) -> NDArray[np.float64]:
         """Compute mean force in the global x-y frame.
 
@@ -290,7 +292,10 @@ class SupervisorClass:
         self.Fx = float(np.mean(Fx_global_in_t))
         self.Fy = float(np.mean(Fy_global_in_t))
         if t is not None:
-            self.F_in_t[t, :] = array([self.Fx, self.Fy], dtype=float)
+            if mod == 'meas':
+                self.F_in_t[t, :] = array([self.Fx, self.Fy], dtype=float)
+            elif mod == 'update':
+                self.F_update_in_t[t, :] = array([self.Fx, self.Fy], dtype=float)
 
         return array([self.Fx, self.Fy], dtype=float)
 
