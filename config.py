@@ -44,7 +44,8 @@ class VariabsConfig:
     # home of robot, motion is taken from there
     pos_home: tuple[float, float, float, float, float, float] = (189.0, 0.0, 28.0, 179.9, 0.1, 0.1)
     # pos_origin: tuple[float, float] = (83.2, -12.3)  # long table holder
-    pos_origin: tuple[float, float, float] = (83.2 - 26, -12.3)  # short table holder
+    # pos_origin: tuple[float, float, float] = (83.2 - 26, -12.3)  # short table holder
+    pos_origin: tuple[float, float, float] = (83.2 - 26, -11.3)  # short table holder 19June
     pos_stress_strain: tuple[float, float, float] = (72, 0, 0)
     joints_sleep: tuple[float, float, float, float, float, float] = (0.0, -30.0, 20.0, 0.0, 100.0, 90.0)
     norm_length: float = 47.2
@@ -57,8 +58,8 @@ class VariabsConfig:
 
 @dataclass(frozen=True)
 class SprvsrConfig:
-    # experiment: str = "training"  # full training through robot
-    experiment: str = "predetermined training"  # training done in simulation, just implement on robot
+    experiment: str = "training"  # full training through robot
+    # experiment: str = "predetermined training"  # training done in simulation, just implement on robot
     # dataset_type: str = "from file"
     dataset_type: str = "predetermined"
     # dataset_type: str = "None"
@@ -74,8 +75,8 @@ class SprvsrConfig:
     # normalize_step: bool = True
     normalize_step: bool = False
 
-    # include_measurement: bool = True
-    include_measurement: bool = False
+    include_measurement: bool = True
+    # include_measurement: bool = False
 
     # sweep
     sweep_T: int = 12
@@ -84,19 +85,19 @@ class SprvsrConfig:
     theta_range: int = 180
 
     # training
-    T: int = 16
+    T: int = 40
     rand_key_dataset: int = 16
     alpha: float = 0.15  # [dimless]
-    init_buckle: str = "0001"
-    desired_buckle: str = "0000"
+    init_buckle: str = "1100"
+    desired_buckle: str = "0101"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)
     H: int = 4
     convert_F: float = 1000.0  # N to mN
 
-    # match simulation and experiment
-    origin_rel_to_sim = [108.0, -14.0, 0.0]
+    # # match simulation and experiment
+    # origin_rel_to_sim = [108.0, -14.0, 0.0]
 
     # reach zero-force for update_scheme == 'pos'
     xy_step_size: float = 10   # [mm]

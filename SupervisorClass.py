@@ -47,7 +47,7 @@ class SupervisorClass:
     L: float                                      # length of 3d print edge + tape
     H: int                                        # number of hinges in chain
     convert_F: float                              # scalar converting from Forsentek force [N] to supervisor [mN]
-    origin_rel_to_sim: NDArray[np.float64]        # the (0, 0) of simulation, tricky but this is it
+    # origin_rel_to_sim: NDArray[np.float64]        # the (0, 0) of simulation, tricky but this is it
     pos_in_t: NDArray[np.float64]                 # tip positions for each T for Measurement, shape ``(T, 3)``. [mm, mm, deg]
     F_in_t: NDArray[np.float64]                   # Measured global force at each step, shape ``(T, 2)``. [mN, mN]
     desired_F_in_t: NDArray[np.float64]           # Desired force at each step, shape ``(T, 2)``. [mN, mN]
@@ -92,8 +92,8 @@ class SupervisorClass:
         else:
             self.desired_path = str(CFG.Sprvsr.desired_path.format(self.init_buckle))
 
-        # orientation
-        self.origin_rel_to_sim = np.asarray(CFG.Sprvsr.origin_rel_to_sim, dtype=float)
+        # # orientation
+        # self.origin_rel_to_sim = np.asarray(CFG.Sprvsr.origin_rel_to_sim, dtype=float)
 
         # tip motion parameters
         self.normalize_step = CFG.Sprvsr.normalize_step

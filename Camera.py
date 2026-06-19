@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 import pyautogui  # NX Tether related
 
+import re
 import cv2
 
 
@@ -44,13 +45,99 @@ class Camera:
         self.width = int(CFG.Camera.width) if width is None else int(width)
         self.height = int(CFG.Camera.height) if height is None else int(height)
 
-        self.cap: Optional[cv2.VideoCapture] = None
-        self.thread: Optional[threading.Thread] = None
-        self.stop_event = threading.Event()
-        self.frame_i = 0
+        # self.cap: Optional[cv2.VideoCapture] = None
+        # self.thread: Optional[threading.Thread] = None
+        # self.stop_event = threading.Event()
+        # self.frame_i = 0
 
-        self.mouse_x = int(CFG.Camera.NX_button_x)
-        self.mouse_y = int(CFG.Camera.NX_button_y)
+        # self.mouse_x = int(CFG.Camera.NX_button_x)
+        # self.mouse_y = int(CFG.Camera.NX_button_y)
+
+    def natural_key(self, path: Path):
+        """Sort filenames like image_2.jpg before image_10.jpg."""
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", path.name)]
+
+    def jpg_folder_to_video(self, frames_dir: str | Path, out_path: str | Path = "videos/from_jpg_folder.mp4",
+                            fps: float = 5.0, sort_by: str = "name",   # "name" or "mtime"
+                            resize_to_first: bool = True) -> Path:
+        """Compile jpg/jpeg images from a folder into an mp4 video."""
+
+        frames_dir = Path(frames_dir)
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        image_paths = []
+        for ext in ("*.jpg", "*.jpeg", "*.JPG", "*.JPEG"):
+            image_paths.extend(frames_dir.glob(ext))
+
+        if sort_by == "name":
+            image_paths = sorted(image_paths, key=self.natural_key)
+        elif sort_by == "mtime":
+            image_paths = sorted(image_paths, key=lambda p: p.stat().st_mtime)
+        else:
+            raise ValueError("sort_by must be 'name' or 'mtime'.")
+
+        print(f"Found {len(image_paths)} jpg/jpeg images in:")
+        print(frames_dir)
+
+        if len(image_paths) == 0:
+            raise RuntimeError(f"No jpg/jpeg images found in {frames_dir}")
+
+        print("First 5 frames:")
+        for p in image_paths[:5]:
+            print(" ", p.name)
+
+        print("Last 5 frames:")
+        for p in image_paths[-5:]:
+            print(" ", p.name)
+
+        first = cv2.imread(str(image_paths[0]))
+        if first is None:
+            raise RuntimeError(f"Could not read first image: {image_paths[0]}")
+
+        h, w = first.shape[:2]
+        print(f"Video size: {w} x {h}")
+        print(f"fps: {fps}")
+
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), float(fps), (w, h))
+
+        if not writer.isOpened():
+            raise RuntimeError(f"Could not open VideoWriter for {out_path}")
+
+        written = 0
+        skipped = 0
+
+        try:
+            for path in image_paths:
+                frame = cv2.imread(str(path))
+
+                if frame is None:
+                    print(f"Skipping unreadable image: {path.name}")
+                    skipped += 1
+                    continue
+
+                if frame.shape[:2] != (h, w):
+                    if resize_to_first:
+                        frame = cv2.resize(frame, (w, h))
+                    else:
+                        print(f"Skipping size-mismatch image: {path.name}, shape={frame.shape}")
+                        skipped += 1
+                        continue
+
+                writer.write(frame)
+                written += 1
+
+        finally:
+            writer.release()
+
+        if written == 0:
+            raise RuntimeError("No frames were written.")
+
+        print(f"Written frames: {written}")
+        print(f"Skipped frames: {skipped}")
+        print(f"Saved video to: {out_path.resolve()}")
+
+        return out_path
 
     def start(self) -> None:
         """Open camera and start background frame saving."""
