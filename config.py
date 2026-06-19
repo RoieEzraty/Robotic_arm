@@ -136,6 +136,9 @@ class CameraConfig:
     width: int = 1280  # [pixels]?
     height: int = 720
 
+    NX_button_x = 945
+    NX_button_y = 665
+
 
 @dataclass(frozen=True)
 class Config:

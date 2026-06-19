@@ -264,7 +264,7 @@ class SupervisorClass:
         self.pos = self.pos_in_t[t, :].copy()
 
     def global_force(self, Snsr: "ForsentekClass", m: "MecaClass", mod: str = 'meas', t: Optional[int] = None,
-                     plot: bool = False) -> NDArray[np.float64]:
+                     theta: float = None, plot: bool = False) -> NDArray[np.float64]:
         """Compute mean force in the global x-y frame.
 
         Parameters
@@ -281,8 +281,9 @@ class SupervisorClass:
         measure_t = np.asarray(Snsr.t, dtype=float)
 
         # rotate measured forces to global frame
-        m._get_current_pos()
-        theta = -(float(m.current_pos[-1]) - float(Snsr.theta_sensor))
+        if not theta:
+            m._get_current_pos()
+            theta = -(float(m.current_pos[-1]) - float(Snsr.theta_sensor))
         Fx_global_in_t, Fy_global_in_t = helpers.rotate_force_frame(force_in_t, theta)
 
         if plot:

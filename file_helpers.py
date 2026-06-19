@@ -155,6 +155,7 @@ def export_training_csv(path_csv: str | Path, Sprvsr: object, T: Optional[int] =
     header += ["loss_x", "loss_y", "loss_MSE"]
     header += ["F_x_meas", "F_y_meas"]
     header += ["F_x_des", "F_y_des"]
+    header += ["F_x_update", "F_y_update"]
     if force_err is not None:
         header += ["F_err"]
 
@@ -171,6 +172,7 @@ def export_training_csv(path_csv: str | Path, Sprvsr: object, T: Optional[int] =
             row += [float(Sprvsr.loss_MSE_in_t[t])]
             row += [float(Sprvsr.F_in_t[t, 0]), float(Sprvsr.F_in_t[t, 1])]
             row += [float(Sprvsr.desired_F_in_t[t, 0]), float(Sprvsr.desired_F_in_t[t, 1])]
+            row += [float(Sprvsr.F_update_in_t[t, 0]), float(Sprvsr.F_update_in_t[t, 1])]
             if force_err is not None:
                 row += [float(force_err)]
             writer.writerow(row)
