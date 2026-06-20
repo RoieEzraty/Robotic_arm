@@ -69,7 +69,7 @@ def sweep_measurement_fixed_origami(m: "MecaClass", Snsr: "ForsentekClass", Sprv
             # move arm
             if not supress_prints:
                 print(f"moving robot to pos={pos}")
-            m.move_pos_w_mid(pos, Sprvsr, Snsr, verbose=False)
+            m.move_pos_w_mid(pos, Sprvsr, Snsr, verbose=True)
 
             # record force
             if not supress_prints:

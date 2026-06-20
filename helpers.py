@@ -436,8 +436,8 @@ def _get_before_tip(tip_pos: NDArray, tip_angle: float, L: float, *, dtype=None)
     else:
         tip_pos = array(tip_pos, dtype=dtype).reshape((2,))
 
-    dx = L * np.cos(tip_angle)
-    dy = L * np.sin(tip_angle)
+    dx = L * np.cos(np.deg2rad(tip_angle))
+    dy = L * np.sin(np.deg2rad(tip_angle))
 
     if dtype is None:
         return tip_pos - array([dx, dy])

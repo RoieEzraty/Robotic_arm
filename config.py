@@ -45,7 +45,7 @@ class VariabsConfig:
     pos_home: tuple[float, float, float, float, float, float] = (189.0, 0.0, 28.0, 179.9, 0.1, 0.1)
     # pos_origin: tuple[float, float] = (83.2, -12.3)  # long table holder
     # pos_origin: tuple[float, float, float] = (83.2 - 26, -12.3)  # short table holder
-    pos_origin: tuple[float, float, float] = (83.2 - 26, -11.3)  # short table holder 19June
+    pos_origin: tuple[float, float, float] = (83.2 - 30, -12.3)  # short table holder 19June
     pos_stress_strain: tuple[float, float, float] = (72, 0, 0)
     joints_sleep: tuple[float, float, float, float, float, float] = (0.0, -30.0, 20.0, 0.0, 100.0, 90.0)
     norm_length: float = 47.2
@@ -61,16 +61,16 @@ class SprvsrConfig:
     experiment: str = "training"  # full training through robot
     # experiment: str = "predetermined training"  # training done in simulation, just implement on robot
     # dataset_type: str = "from file"
-    dataset_type: str = "predetermined"
-    # dataset_type: str = "None"
+    # dataset_type: str = "predetermined"
+    dataset_type: str = "None"
     sweep_path: str = r"data/datasets/May27/short_arc/example_traj.csv"
     desired_path: str = r"data/datasets/May27/short_arc/buckle={}.csv"
     pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHinge1stEnd_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
 
     # # BEASTAL update tip values
     # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
-    update_scheme: str = 'loss_diff'  # difference of x and y loss components
-    # update_scheme: str = 'pos'  # difference of x and y loss components
+    # update_scheme: str = 'loss_diff'  # difference of x and y loss components
+    update_scheme: str = 'pos'  # difference of x and y loss components
 
     # normalize_step: bool = True
     normalize_step: bool = False
@@ -137,8 +137,8 @@ class CameraConfig:
     width: int = 1280  # [pixels]?
     height: int = 720
 
-    NX_button_x = 945
-    NX_button_y = 665
+    NX_button_x = 1025
+    NX_button_y = 175
 
 
 @dataclass(frozen=True)

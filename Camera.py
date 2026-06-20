@@ -50,8 +50,8 @@ class Camera:
         # self.stop_event = threading.Event()
         # self.frame_i = 0
 
-        # self.mouse_x = int(CFG.Camera.NX_button_x)
-        # self.mouse_y = int(CFG.Camera.NX_button_y)
+        self.mouse_x = int(CFG.Camera.NX_button_x)
+        self.mouse_y = int(CFG.Camera.NX_button_y)
 
     def natural_key(self, path: Path):
         """Sort filenames like image_2.jpg before image_10.jpg."""

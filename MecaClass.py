@@ -317,9 +317,9 @@ class MecaClass:
 
         # # move midway if angle too big
         cur = self.pts_3_to_6(self.current_pos)
-        print('current pos=', cur)
+        # print('current pos=', cur)
         delta_angle = target[5] - cur[5]
-        print('delta_angle=', delta_angle)
+        # print('delta_angle=', delta_angle)
         attempts = 0
         while np.abs(delta_angle) > 180 and attempts < 4:
             target_mid = tuple(np.asarray(cur) + (np.asarray(target) - np.asarray(cur))*1/2)
