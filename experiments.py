@@ -92,11 +92,15 @@ def measurement(m: "MecaClass", Snsr: "ForsentekClass", Sprvsr: "SupervisorClass
         if path is not None:
             _, F_vec = sweep_measurement_fixed_origami(m, Snsr, Sprvsr, path=path)
         else:
-            raise RuntimeError("please provide predetermined trajectory file path.")
+            _, F_vec = sweep_measurement_fixed_origami(m, Snsr, Sprvsr, path=Sprvsr.sweep_path)
         print('F_vec=', F_vec)
         F_t = np.mean(F_vec, axis=0)
         print('F_t=', F_t)
         Sprvsr.F_in_t[t, :] = F_t
+    elif Sprvsr.dataset_type == "pos":
+        measured_rest_pos = Sprvsr.reach_zero_force(Snsr, m)  # shape (3,)
+        print("measured_rest_pos=", measured_rest_pos)
+        Sprvsr.rest_pos_in_t[t, :] = measured_rest_pos
     else:
         Sprvsr.draw_measurement(t)
         print('tip position = ', Sprvsr.pos)

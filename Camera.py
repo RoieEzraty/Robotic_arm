@@ -53,6 +53,46 @@ class Camera:
         self.mouse_x = int(CFG.Camera.NX_button_x)
         self.mouse_y = int(CFG.Camera.NX_button_y)
 
+    def bring_nx_tether_to_front(self, timeout_s: float = 3.0) -> None:
+        """Bring NX Tether window to foreground before clicking."""
+        t0 = time.time()
+
+        while time.time() - t0 < timeout_s:
+            windows = pyautogui.getWindowsWithTitle("Z 7_2")
+
+            if windows:
+                win = windows[0]
+
+                if win.isMinimized:
+                    win.restore()
+                    time.sleep(0.3)
+
+                try:
+                    win.activate()
+                    time.sleep(0.3)
+                except Exception as err:
+                    print(f"NX activate warning: {err}")
+
+                    # fallback: click inside the NX window to focus it
+                    try:
+                        win.restore()
+                        time.sleep(0.2)
+                        pyautogui.click(win.left + 50, win.top + 20)
+                        time.sleep(0.3)
+                    except Exception as err2:
+                        print(f"NX fallback-focus warning: {err2}")
+
+                return
+
+            time.sleep(0.2)
+
+        raise RuntimeError("Could not find NX Tether window. Open NX Tether before starting acquisition.")
+
+    def click_nx_interval_button(self) -> None:
+        self.bring_nx_tether_to_front()
+        pyautogui.click(self.mouse_x, self.mouse_y)
+        time.sleep(0.5)
+
     def natural_key(self, path: Path):
         """Sort filenames like image_2.jpg before image_10.jpg."""
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", path.name)]
@@ -139,137 +179,138 @@ class Camera:
 
         return out_path
 
-    def start(self) -> None:
-        """Open camera and start background frame saving."""
-        self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
 
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+## ==========
+## NOT IN USE
+## ==========
 
-        ok, frame = self.cap.read()
-        print(ok, frame.shape if ok else None)
+    # def start(self) -> None:
+    #     """Open camera and start background frame saving."""
+    #     self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
 
-        # self.cap.release()
+    #     self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    #     self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    #     self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
-        if self.width is not None:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        if self.height is not None:
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+    #     ok, frame = self.cap.read()
+    #     print(ok, frame.shape if ok else None)
 
-        ok, _ = self.cap.read()
-        if not ok:
-            self.cap.release()
-            self.cap = None
-            raise RuntimeError(f"Could not read from camera_id={self.camera_id}.")
+    #     # self.cap.release()
 
-        self.stop_event.clear()
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-        self.thread.start()
+    #     if self.width is not None:
+    #         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+    #     if self.height is not None:
+    #         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
-    def stop(self, compile_video: bool = True, video_fps: Optional[float] = None) -> None:
-        """Stop recording and release camera."""
-        self.stop_event.set()
+    #     ok, _ = self.cap.read()
+    #     if not ok:
+    #         self.cap.release()
+    #         self.cap = None
+    #         raise RuntimeError(f"Could not read from camera_id={self.camera_id}.")
 
-        if self.thread is not None:
-            self.thread.join(timeout=3.0)
+    #     self.stop_event.clear()
+    #     self.thread = threading.Thread(target=self._loop, daemon=True)
+    #     self.thread.start()
 
-        if self.cap is not None:
-            self.cap.release()
+    # def stop(self, compile_video: bool = True, video_fps: Optional[float] = None) -> None:
+    #     """Stop recording and release camera."""
+    #     self.stop_event.set()
 
-        self.thread = None
-        self.cap = None
+    #     if self.thread is not None:
+    #         self.thread.join(timeout=3.0)
 
-        if compile_video:
-            return self.compile_video(video_fps=video_fps)
+    #     if self.cap is not None:
+    #         self.cap.release()
 
-    def nx_frames_to_video(self, frames_dir, out_path, fps=5.0):
-        frames_dir = Path(frames_dir)
-        out_path = Path(out_path)
+    #     self.thread = None
+    #     self.cap = None
 
-        image_paths = sorted(
-            list(frames_dir.glob("*.jpg")) +
-            list(frames_dir.glob("*.jpeg")) +
-            list(frames_dir.glob("*.JPG")) +
-            list(frames_dir.glob("*.JPEG"))
-        )
+    #     if compile_video:
+    #         return self.compile_video(video_fps=video_fps)
 
-        if not image_paths:
-            raise RuntimeError(f"No images found in {frames_dir}")
+    # def _loop(self) -> None:
+    #     """Save frames at approximately ``self.fps``."""
+    #     assert self.cap is not None
 
-        first = cv2.imread(str(image_paths[0]))
-        h, w = first.shape[:2]
+    #     next_t = time.time()
 
-        writer = cv2.VideoWriter(
-            str(out_path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            fps,
-            (w, h),
-        )
+    #     while not self.stop_event.is_set():
+    #         ok, frame = self.cap.read()
 
-        for path in image_paths:
-            frame = cv2.imread(str(path))
-            writer.write(frame)
+    #         if ok:
+    #             t_unix = time.time()
+    #             filename = self.out_dir / f"frame_{self.frame_i:05d}_t_{t_unix:.3f}.png"
+    #             cv2.imwrite(str(filename), frame)
+    #             self.frame_i += 1
 
-        writer.release()
-        return out_path
+    #         next_t += self.dt
+    #         sleep_t = next_t - time.time()
+    #         if sleep_t > 0:
+    #             time.sleep(sleep_t)
 
-    def compile_video(self, video_fps: Optional[float] = None) -> Path:
-        """Compile saved PNG frames into an mp4 video."""
-        frame_paths = sorted(self.out_dir.glob("frame_*.png"))
-        if len(frame_paths) == 0:
-            raise RuntimeError(f"No frames found in {self.out_dir}")
+    # def compile_video(self, video_fps: Optional[float] = None) -> Path:
+    #     """Compile saved PNG frames into an mp4 video."""
+    #     frame_paths = sorted(self.out_dir.glob("frame_*.png"))
+    #     if len(frame_paths) == 0:
+    #         raise RuntimeError(f"No frames found in {self.out_dir}")
 
-        if video_fps is None:
-            video_fps = self.fps
+    #     if video_fps is None:
+    #         video_fps = self.fps
 
-        out_path = self.out_dir.with_suffix(".mp4")
+    #     out_path = self.out_dir.with_suffix(".mp4")
 
-        first = cv2.imread(str(frame_paths[0]))
-        if first is None:
-            raise RuntimeError(f"Could not read first frame: {frame_paths[0]}")
+    #     first = cv2.imread(str(frame_paths[0]))
+    #     if first is None:
+    #         raise RuntimeError(f"Could not read first frame: {frame_paths[0]}")
 
-        h, w = first.shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(out_path), fourcc, float(video_fps), (w, h))
+    #     h, w = first.shape[:2]
+    #     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    #     writer = cv2.VideoWriter(str(out_path), fourcc, float(video_fps), (w, h))
 
-        try:
-            for frame_path in frame_paths:
-                frame = cv2.imread(str(frame_path))
-                if frame is None:
-                    print(f"Skipping unreadable frame: {frame_path}")
-                    continue
+    #     try:
+    #         for frame_path in frame_paths:
+    #             frame = cv2.imread(str(frame_path))
+    #             if frame is None:
+    #                 print(f"Skipping unreadable frame: {frame_path}")
+    #                 continue
 
-                if frame.shape[:2] != (h, w):
-                    frame = cv2.resize(frame, (w, h))
+    #             if frame.shape[:2] != (h, w):
+    #                 frame = cv2.resize(frame, (w, h))
 
-                writer.write(frame)
+    #             writer.write(frame)
 
-        finally:
-            writer.release()
+    #     finally:
+    #         writer.release()
 
-        return out_path
+    #     return out_path
 
-    def click_nx_interval_button(self) -> None:
-        pyautogui.click(self.mouse_x, self.mouse_y)
-        time.sleep(0.5)
+    # def nx_frames_to_video(self, frames_dir, out_path, fps=5.0):
+    #     frames_dir = Path(frames_dir)
+    #     out_path = Path(out_path)
 
-    def _loop(self) -> None:
-        """Save frames at approximately ``self.fps``."""
-        assert self.cap is not None
+    #     image_paths = sorted(
+    #         list(frames_dir.glob("*.jpg")) +
+    #         list(frames_dir.glob("*.jpeg")) +
+    #         list(frames_dir.glob("*.JPG")) +
+    #         list(frames_dir.glob("*.JPEG"))
+    #     )
 
-        next_t = time.time()
+    #     if not image_paths:
+    #         raise RuntimeError(f"No images found in {frames_dir}")
 
-        while not self.stop_event.is_set():
-            ok, frame = self.cap.read()
+    #     first = cv2.imread(str(image_paths[0]))
+    #     h, w = first.shape[:2]
 
-            if ok:
-                t_unix = time.time()
-                filename = self.out_dir / f"frame_{self.frame_i:05d}_t_{t_unix:.3f}.png"
-                cv2.imwrite(str(filename), frame)
-                self.frame_i += 1
+    #     writer = cv2.VideoWriter(
+    #         str(out_path),
+    #         cv2.VideoWriter_fourcc(*"mp4v"),
+    #         fps,
+    #         (w, h),
+    #     )
 
-            next_t += self.dt
-            sleep_t = next_t - time.time()
-            if sleep_t > 0:
-                time.sleep(sleep_t)
+    #     for path in image_paths:
+    #         frame = cv2.imread(str(path))
+    #         writer.write(frame)
+
+    #     writer.release()
+    #     return out_path

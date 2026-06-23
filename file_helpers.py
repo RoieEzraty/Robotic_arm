@@ -130,51 +130,101 @@ def save_V0(path: str | Path, V0: NDArray[np.float64] | list[float] | tuple[floa
     np.savez(out_path, V0=np.asarray(V0, dtype=float))
 
 
-def export_training_csv(path_csv: str | Path, Sprvsr: object, T: Optional[int] = None, force_err: Optional[float] = None) -> None:
-    """Export predetermined-training data from supervisor buffers.
-    Used at the end of Training in main Meca500 notebook.
+def export_training_csv(path_csv: str | Path, Sprvsr: object,
+                        T: Optional[int] = None,
+                        force_err: Optional[float] = None) -> None:
+    """Export training data from supervisor buffers.
 
-    Parameters
-    ----------
-    path_csv : str | Path. Output CSV path.
-    Sprvsr   : object. Supervisor-like object exposing ``pos_in_t``, ``pos_update_in_t``, ``loss_in_t``, 
-                                                       ``loss_MSE_in_t``, ``F_in_t``, and ``desired_F_in_t``.
-    T        : int | None, optional. Number of rows to export. If omitted, uses ``Sprvsr.T``.
+    For force-based training, exports measured/desired/update forces.
+    For position-based training, exports measured/desired rest poses instead.
     """
-    # create output file
     out_path = Path(path_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # time steps to same
     if T is None:
         T = int(Sprvsr.T)
 
-    # Headers
+    is_pos_training = getattr(Sprvsr, "update_scheme", None) == "pos"
+
+    # Base columns: measurement pose and update pose.
     header = ["t", "x_tip", "y_tip", "tip_angle_deg"]
     header += ["upd_x_tip", "upd_y_tip", "upd_tip_angle"]
-    header += ["loss_x", "loss_y", "loss_MSE"]
-    header += ["F_x_meas", "F_y_meas"]
-    header += ["F_x_des", "F_y_des"]
-    header += ["F_x_update", "F_y_update"]
-    if force_err is not None:
-        header += ["F_err"]
+    header += ["loss_x", "loss_y"]
 
-    # insert
+    if is_pos_training:
+        header += ["loss_theta"]
+
+    header += ["loss_MSE"]
+
+    if is_pos_training:
+        header += ["x_rest_meas", "y_rest_meas", "theta_rest_meas"]
+        header += ["x_rest_des", "y_rest_des", "theta_rest_des"]
+    else:
+        header += ["F_x_meas", "F_y_meas"]
+        header += ["F_x_des", "F_y_des"]
+        header += ["F_x_update", "F_y_update"]
+
+        if force_err is not None:
+            header += ["F_err"]
+
     with out_path.open("w", newline="", encoding="utf-8") as file_obj:
         writer = csv.writer(file_obj)
         writer.writerow(header)
 
         for t in range(T):
-            row = [t, float(Sprvsr.pos_in_t[t, 0]), float(Sprvsr.pos_in_t[t, 1]), float(Sprvsr.pos_in_t[t, 2])]
-            row += [float(Sprvsr.pos_update_in_t[t, 0]), float(Sprvsr.pos_update_in_t[t, 1]),
-                    float(Sprvsr.pos_update_in_t[t, 2])]
-            row += [float(x) for x in Sprvsr.loss_in_t[t, :]]
+            row = [
+                t,
+                float(Sprvsr.pos_in_t[t, 0]),
+                float(Sprvsr.pos_in_t[t, 1]),
+                float(Sprvsr.pos_in_t[t, 2]),
+            ]
+
+            row += [
+                float(Sprvsr.pos_update_in_t[t, 0]),
+                float(Sprvsr.pos_update_in_t[t, 1]),
+                float(Sprvsr.pos_update_in_t[t, 2]),
+            ]
+
+            row += [float(Sprvsr.loss_in_t[t, 0])]
+            row += [float(Sprvsr.loss_in_t[t, 1])]
+
+            if is_pos_training:
+                row += [float(Sprvsr.loss_in_t[t, 2])]
+
             row += [float(Sprvsr.loss_MSE_in_t[t])]
-            row += [float(Sprvsr.F_in_t[t, 0]), float(Sprvsr.F_in_t[t, 1])]
-            row += [float(Sprvsr.desired_F_in_t[t, 0]), float(Sprvsr.desired_F_in_t[t, 1])]
-            row += [float(Sprvsr.F_update_in_t[t, 0]), float(Sprvsr.F_update_in_t[t, 1])]
-            if force_err is not None:
-                row += [float(force_err)]
+
+            if is_pos_training:
+                row += [
+                    float(Sprvsr.rest_pos_in_t[t, 0]),
+                    float(Sprvsr.rest_pos_in_t[t, 1]),
+                    float(Sprvsr.rest_pos_in_t[t, 2]),
+                ]
+
+                row += [
+                    float(Sprvsr.desired_pos_in_t[t, 0]),
+                    float(Sprvsr.desired_pos_in_t[t, 1]),
+                    float(Sprvsr.desired_pos_in_t[t, 2]),
+                ]
+
+            else:
+                row += [
+                    float(Sprvsr.F_in_t[t, 0]),
+                    float(Sprvsr.F_in_t[t, 1]),
+                ]
+
+                row += [
+                    float(Sprvsr.desired_F_in_t[t, 0]),
+                    float(Sprvsr.desired_F_in_t[t, 1]),
+                ]
+
+                row += [
+                    float(Sprvsr.F_update_in_t[t, 0]),
+                    float(Sprvsr.F_update_in_t[t, 1]),
+                ]
+
+                if force_err is not None:
+                    row += [float(force_err)]
+
             writer.writerow(row)
 
 

@@ -58,19 +58,25 @@ class VariabsConfig:
 
 @dataclass(frozen=True)
 class SprvsrConfig:
-    experiment: str = "training"  # full training through robot
-    # experiment: str = "predetermined training"  # training done in simulation, just implement on robot
+    # experiment: str = "training"  # full training through robot
+    experiment: str = "predetermined training"  # training done in simulation, just implement on robot
+
     # dataset_type: str = "from file"
     # dataset_type: str = "predetermined"
-    dataset_type: str = "None"
+    dataset_type: str = "pos"
+    # dataset_type: str = "None"
+
     sweep_path: str = r"data/datasets/May27/short_arc/example_traj.csv"
     desired_path: str = r"data/datasets/May27/short_arc/buckle={}.csv"
-    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHinge1stEnd_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
+    # pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May28_May22singleHinge1stEnd_May27shortArcTraj/final_loss_0_init_{}_desired_{}.csv"
+    pretrained_path: str = r"C:/Users/owner/OneDrive - huji.ac.il/ORIGAMI/Bistable shape acquisition jax/Training/May17Pos_symmetrical_delta/final_loss_0_init_{}_desired_{}.csv"
 
     # # BEASTAL update tip values
-    # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
-    # update_scheme: str = 'loss_diff'  # difference of x and y loss components
-    update_scheme: str = 'pos'  # difference of x and y loss components
+    if dataset_type == "pos":
+        update_scheme: str = 'pos'  # difference of x and y loss components
+    else:
+        # update_scheme: str = 'one_to_one'  # direct normalized loss, equal to num of outputs
+        update_scheme: str = 'loss_diff'  # difference of x and y loss components
 
     # normalize_step: bool = True
     normalize_step: bool = False
@@ -88,8 +94,8 @@ class SprvsrConfig:
     T: int = 40
     rand_key_dataset: int = 16
     alpha: float = 0.15  # [dimless]
-    init_buckle: str = "1100"
-    desired_buckle: str = "0101"
+    init_buckle: str = "1111"
+    desired_buckle: str = "1101"
 
     # chain / files
     L: float = 47.2  # 45mm plastic edge + 1.2mm tape (each direction)
@@ -100,9 +106,10 @@ class SprvsrConfig:
     # origin_rel_to_sim = [108.0, -14.0, 0.0]
 
     # reach zero-force for update_scheme == 'pos'
-    xy_step_size: float = 10   # [mm]
-    theta_step_size: float = 10  # [deg]
+    xy_step_size: float = 25   # [mm]
+    theta_step_size: float = 5  # [deg]
     F_tol: float = 5  # [mN]
+    reach_steps: int = 6  # steps arm tries to reach zero force
 
 
 @dataclass(frozen=True)

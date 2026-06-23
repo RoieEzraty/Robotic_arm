@@ -111,6 +111,7 @@ class SupervisorClass:
             self.xy_step_size = float(CFG.Sprvsr.xy_step_size)   # [mm]
             self.theta_step_size = float(CFG.Sprvsr.theta_step_size)  # [deg]
             self.F_tol = float(CFG.Sprvsr.F_tol)  # [N]
+            self.reach_steps = int(CFG.Sprvsr.reach_steps)
 
         # chain and force
         self.L = float(CFG.Sprvsr.L)
@@ -169,47 +170,73 @@ class SupervisorClass:
         self.desired_F_in_t = np.zeros((self.T, 2), dtype=float)
         self.pos_update_in_t = np.zeros((self.T, 3), dtype=float)
         self.total_angle_update_in_t = np.zeros(self.T, dtype=float)
-        self.loss_in_t = np.zeros((self.T, 2), dtype=float)
+
+        # loss
+        loss_size = 3 if self.update_scheme == "pos" else 2
+        self.loss_in_t = np.zeros((self.T, loss_size), dtype=float)
         self.loss_MSE_in_t = np.zeros(self.T, dtype=float)
         self.pos_in_t = np.zeros((self.T, 3), dtype=float)
+        if self.update_scheme == "pos":
+            self.desired_pos_in_t = np.zeros((self.T, 3), dtype=float)
+            self.rest_pos_in_t = np.zeros((self.T, 3), dtype=float)
 
-        # ------- optionally measure the dataset ------
-        if measure_des:
-            if m is None or Snsr is None:
-                raise ValueError("measure_des=True requires both 'm' and 'Snsr' instances.")
-            print("measuring desired forces in training configuration solely")
-
-            # measurement experiment
-            pos_base, force_base = experiments.sweep_measurement_fixed_origami(m, Snsr, self, path=sweep_path)
-            desired_forces = np.mean(force_base, axis=0)
-            desired_forces = np.tile(desired_forces, (self.T, 1))
-
-            # write to file, do not save in self
-            file_helpers.write_supervisor_dataset(pos_base, force_base, out_path)
-
-        if self.experiment == "predetermined training":  # load all training from file 
+        # ------- define / load desired dataset ------
+        if self.experiment == "predetermined training":
+            # Full trajectory already comes from pretrained file.
             pos_force_rows = file_helpers.load_pos_force(pretrained_path)
-        else:  # from path where only desired are present
-            if measure_des:
-                # use forces you just saved to output file
-                pos_force_rows = file_helpers.load_pos_force(out_path)
-            else:
-                pos_force_rows = file_helpers.load_pos_force(desired_path)
 
-        # ------- load dataset regardless of measurement ------
-        if self.experiment == "training":
-            rng = np.random.default_rng(self.rand_key_dataset)
-
-        if self.experiment == "training":
-            pos_base = array([row["pos"] for row in pos_force_rows], dtype=float)
-            force_base = array([row["force"] for row in pos_force_rows], dtype=float)
-        elif self.experiment == "predetermined training":
             pos_base = array([row["pos_update"] for row in pos_force_rows], dtype=float)
             pos_update = array([row["pos_update"] for row in pos_force_rows], dtype=float)
+            desired_forces = array([row["force_des"] for row in pos_force_rows], dtype=float)
+
+        elif self.experiment == "training":
+            rng = np.random.default_rng(self.rand_key_dataset)
+
             if measure_des:
-                pass
+                if m is None or Snsr is None:
+                    raise ValueError("measure_des=True requires both 'm' and 'Snsr' instances.")
+
+                if self.update_scheme == "pos":
+                    print("finding desired zero-force rest pose")
+
+                    desired_rest_pos = self.reach_zero_force(Snsr, m)  # shape (3,)
+                    print("desired_rest_pos =", desired_rest_pos)
+
+                    # Desired target for position-loss training.
+                    self.desired_pos_in_t[:] = np.tile(desired_rest_pos, (self.T, 1))
+                    self.desired_F_in_t[:] = 0.0
+
+                    # Save desired rest pose as regular pos-force file with dummy forces.
+                    pos_base = self.desired_pos_in_t.copy()
+                    force_base = np.zeros((self.T, 2), dtype=float)
+
+                else:
+                    print("measuring desired forces in training configuration solely")
+
+                    pos_base, force_base = experiments.sweep_measurement_fixed_origami(m, Snsr, self,
+                                                                                       path=sweep_path)
+
+                    desired_forces = np.mean(force_base, axis=0)  # shape (2,)
+                    self.desired_F_in_t[:] = np.tile(desired_forces, (self.T, 1))
+
+                file_helpers.write_supervisor_dataset(pos_base, force_base, out_path)
+
             else:
-                desired_forces = array([row["force_des"] for row in pos_force_rows], dtype=float)
+                # Reuse previously saved desired dataset.
+                pos_force_rows = file_helpers.load_pos_force(desired_path)
+
+                pos_base = array([row["pos"] for row in pos_force_rows], dtype=float)
+                force_base = array([row["force"] for row in pos_force_rows], dtype=float)
+
+                if self.update_scheme == "pos":
+                    repeats = int(np.ceil(self.T / pos_base.shape[0]))
+                    self.desired_pos_in_t[:] = np.tile(pos_base, (repeats, 1))[:self.T]
+                    self.desired_F_in_t[:] = 0.0
+
+                else:
+                    repeats = int(np.ceil(self.T / force_base.shape[0]))
+                    self.desired_F_in_t[:] = np.tile(force_base, (repeats, 1))[:self.T]
+
         else:
             raise ValueError("init_dataset currently supports only training modes.")
 
@@ -219,37 +246,56 @@ class SupervisorClass:
 
         # ------ fill in arrays in time ------
         if self.experiment == "training":
-            if self.dataset_type == "from file":  # get measured values from file, but tile them repeatedly
+            if self.dataset_type == "from file":
+                if self.update_scheme == "pos":
+                    raise ValueError("dataset_type='from file' is ambiguous for update_scheme='pos'. "
+                                     "Use dataset_type='predetermined'.")
+
                 repeats = int(np.ceil(self.T / num_rows))
                 pos_tiled = np.tile(pos_base, (repeats, 1))
                 force_tiled = np.tile(force_base, (repeats, 1))
-                self.pos_in_t = pos_tiled[: self.T]
-                self.desired_F_in_t = force_tiled[: self.T]
-            elif self.dataset_type == "shuffle":  # shuffle dataset
+
+                self.pos_in_t = pos_tiled[:self.T]
+                self.desired_F_in_t = force_tiled[:self.T]
+
+            elif self.dataset_type == "shuffle":
+                if self.update_scheme == "pos":
+                    raise ValueError("dataset_type='shuffle' does not make sense for update_scheme='pos'. "
+                                     "Use dataset_type='predetermined'.")
+
                 t_idx = 0
                 while t_idx < self.T:
                     shuffle_idx = rng.permutation(num_rows)
                     batch_size = min(num_rows, self.T - t_idx)
                     selection = shuffle_idx[:batch_size]
 
-                    self.pos_in_t[t_idx:t_idx+batch_size] = pos_base[selection]
-                    self.desired_F_in_t[t_idx:t_idx+batch_size] = (force_base[selection])
+                    self.pos_in_t[t_idx:t_idx + batch_size] = pos_base[selection]
+                    self.desired_F_in_t[t_idx:t_idx + batch_size] = force_base[selection]
                     t_idx += batch_size
-            elif self.dataset_type == "predetermined":  # average force of full predetermined trajectory
-                # tip_pos = np.array([self.H*self.L*(1-margin), self.L*margin, self.norm_angle*margin])  # up to 2026June8
-                end = float((self.H+1)*self.L)
-                tip_pos = array([end, 0, 0.0], dtype=np.float32)
 
-                print('tip_pos=', tip_pos)
-                desired_forces = np.mean(force_base, axis=0)
-                print('force_base=', force_base)
-                print('desired_forces=', desired_forces)
+            elif self.dataset_type == "predetermined" or self.dataset_type == "pos":
+                end = float((self.H + 1) * self.L)
+                tip_pos = array([end, 0.0, 0.0], dtype=float)
 
+                print("tip_pos=", tip_pos)
                 self.pos_in_t[:] = np.tile(tip_pos, (self.T, 1))
-                self.desired_F_in_t = np.tile(desired_forces, (self.T, 1))
+
+                if self.update_scheme == "pos":
+                    # desired_pos_in_t was already set above:
+                    # - from reach_zero_force() if measure_des=True
+                    # - from desired_path if measure_des=False
+                    pass
+                else:
+                    desired_forces = np.mean(force_base, axis=0)
+                    print("force_base=", force_base)
+                    print("desired_forces=", desired_forces)
+                    self.desired_F_in_t[:] = np.tile(desired_forces, (self.T, 1))
+
             else:
                 raise ValueError(f"Unsupported dataset type: {self.dataset_type}")
-        else:  # straight from the file
+
+        else:
+            # predetermined training: straight from pretrained file
             self.pos_in_t = pos_base
             self.desired_F_in_t = desired_forces
             self.pos_update_in_t = pos_update
@@ -300,21 +346,30 @@ class SupervisorClass:
 
         return array([self.Fx, self.Fy], dtype=float)
 
-    def calc_loss(self, t: int, norm_force: float) -> None:
+    def calc_loss(self, t: int, norm_force: float, pos: Optional[NDArray[np.float64]] = None,
+                  pos_des: Optional[NDArray[np.float64]] = None) -> None:
         """Compute and store loss for step ``t``. 
 
         Parameters
         ----------
-        t          : Supervisor step index.
-        norm_force : Normalization factor used to obtain a dimensionless loss.
+        t            : Supervisor step index.
+        norm_force   : Normalization factor used to obtain a dimensionless loss.
+        pos, pos_des : [3,] array of current, desired tip position and angle [mm, mm, deg]
         """
-        # calculate
-        self.loss = (self.desired_F_in_t[t, :] - self.F_in_t[t, :]) / self.convert_F  # (2,) [mN]
-        self.loss = self.loss / float(norm_force)  # (2,) [dimless]
-        self.loss_MSE = float(np.mean(self.loss ** 2))  # (1,) [dimless]
 
-        # store
-        self.loss_in_t[t, :] = self.loss
+        if self.update_scheme == "pos":
+            if pos is None:
+                pos = self.rest_pos_in_t[t, :]
+            if pos_des is None:
+                pos_des = self.desired_pos_in_t[t, :]
+
+            self.loss = self._loss_tip_pos(t=t, pos=pos, pos_des=pos_des)
+
+        else:
+            self.loss = self._loss_force(t=t, norm_force=norm_force)
+
+        self.loss_MSE = float(np.mean(self.loss ** 2))
+        self.loss_in_t[t, :self.loss.shape[0]] = self.loss
         self.loss_MSE_in_t[t] = self.loss_MSE
 
     def calc_tip_update(self, m: "MecaClass", t: int, 
@@ -336,35 +391,6 @@ class SupervisorClass:
                                                                             coiled tip (reset tip values from dataset)
                                                                             tip cuts origin (as above)
         """
-        # if t == 0:
-        #     prev_pos_update = self.pos_in_t[0].copy()
-        # else:
-        #     prev_pos_update = self.pos_update_in_t[t - 1, :].copy()
-
-        # # calculate update
-        # sgn_x = float(np.sign(prev_pos_update[0]))
-        # delta_x_update = self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        # delta_y_update = -self.alpha * self.loss_norm[0] * sgn_x * m.norm_length
-        # delta_theta_update = -self.alpha * self.loss_norm[1] * m.norm_angle
-
-        # self.pos_update_in_t[t, :] = prev_pos_update + delta_update
-        # print("pos_update_in_t[t, :] before correct for tot angle = ", self.pos_update_in_t[t, :])
-
-        # # correct for total angle
-        # if correct_for_total_angle:
-        #     if t == 0:
-        #         prev_total_angle = 0.0
-        #     else:
-        #         prev_total_angle = float(self.total_angle_update_in_t[t - 1])
-
-        #     tip_pos = self.pos_update_in_t[t, :2].copy()
-        #     self.total_angle = helpers.get_total_angle(self.L, tip_pos, prev_total_angle)
-        #     delta_total_angle = self.total_angle - prev_total_angle
-        #     self.pos_update_in_t[t, 2] += delta_total_angle
-        #     self.total_angle_update_in_t[t] = self.total_angle
-        #     print("current total_angle", self.total_angle)
-        #     print("pos_update_in_t[t, :] after correct for tot angle = ", self.pos_update_in_t[t, :])
-
         # ------ delta tip and angle ------
         # through BEASTAL, one_to_one or radial_one_to_one
         dispatch = self._get_delta_dispatch()
@@ -424,60 +450,22 @@ class SupervisorClass:
                 print(f'add delta tip angle {delta_total_angle} to correct for total angle ')
 
         # ------ correct for too big a stretch ------
-        if self.update_scheme == 'pos':
-            # # If the raw x/y update exits the reachable disk, slide along the
-            # # effective-radius perimeter instead of radially projecting back.
-            # R_eff = helpers.effective_radius(self.R_free, Strctr.L, total_angle=total_angle,
-            #                                  tip_angle=float(self.tip_angle_update_in_t[t]),
-            #                                  supress_prints=self.supress_prints)
-            # before_prev = helpers._get_before_tip(prev_tip_update_pos, float(prev_tip_update_angle),
-            #                                       Strctr.L, xp=np)
+        raw_tip = self.pos_update_in_t[t, :2].copy()
 
-            # raw_tip_before_clamp = self.tip_pos_update_in_t[t, :].copy()
+        self.pos_update_in_t[t, :2] = helpers._correct_big_stretch(tip_pos=raw_tip, 
+                                                                   tip_angle=np.deg2rad(float(self.pos_update_in_t[t, 2])),
+                                                                   total_angle=np.deg2rad(float(total_angle)),
+                                                                   R_free=self.R_free_sim, L=self.L, margin=0.1,
+                                                                   supress_prints=self.supress_prints)
 
-            # # # clamp outside inner radius
-            # tip_new, _, clamped_inner = helpers.clamp_pos_same_delta(before_prev=before_prev,
-            #                                                          tip_angle_new=float(self.tip_angle_update_in_t[t]),
-            #                                                          tip_raw=self.tip_pos_update_in_t[t, :],
-            #                                                          second_node=array([Strctr.L, 0.0], dtype=float),
-            #                                                          R_lim=self.R_min, L=Strctr.L, mod="inner")
-
-            # # clamp outside outer radius
-            # tip_new, _, clamped_outer = helpers.clamp_pos_same_delta(before_prev=before_prev,
-            #                                                          tip_angle_new=float(self.tip_angle_update_in_t[t]),
-            #                                                          tip_raw=tip_new,
-            #                                                          second_node=array([Strctr.L, 0.0], dtype=float),
-            #                                                          R_lim=R_eff, L=Strctr.L, mod="outer",
-            #                                                          tip_update_prev=prev_tip_update_pos,
-            #                                                          raw_update_tip=delta_tip)
-
-            # if clamped_outer:
-            #     corrected_delta = tip_new - prev_tip_update_pos
-            #     print(
-            #         "outer clamp:",
-            #         "raw_delta=", delta_tip,
-            #         "corrected_delta=", corrected_delta,
-            #         "raw_dy=", delta_tip[1],
-            #         "corrected_dy=", corrected_delta[1],
-            #         "prev_y=", prev_tip_update_pos[1],
-            #     )
-
-            # self.tip_pos_update_in_t[t, :] = tip_new
-
-            # if not self.supress_prints:
-            #     if clamped_inner:
-            #         print(f'tip slid on effective inner radius to {self.tip_pos_update_in_t[t, :]}')
-
-            print('!!!Roie, please update for free tip, up until now it is only valid for updates through Force!!!')
-
-        else:
-            self.pos_update_in_t[t, :2] = helpers._correct_big_stretch(self.pos_update_in_t[t, :2],
-                                                                       np.deg2rad(self.pos_update_in_t[t, 2]),
-                                                                       np.deg2rad(total_angle), self.R_free_sim,
-                                                                       self.L, margin=0.1,
-                                                                       supress_prints=self.supress_prints)
-            if not self.supress_prints:
-                print(f'tip after correct big stretch={self.pos_update_in_t[t, :2]}')
+        if not self.supress_prints:
+            # print("stretch correction:", 
+            #       "scheme=", self.update_scheme,
+            #       "raw_tip=", raw_tip,
+            #       "corrected_tip=", self.pos_update_in_t[t, :2],
+            #       "angle_deg=", self.pos_update_in_t[t, 2],
+            #       "total_angle_deg=", total_angle)
+            print(f'tip after correct big stretch={self.pos_update_in_t[t, :2]}')
 
         # ------ correct for coil or cut origin ------
         cond_coil = helpers.coil(self.pos_update_in_t[t, 2], revolutions=1.5)
@@ -527,79 +515,81 @@ class SupervisorClass:
         if not self.supress_prints:
             print(f'total angle end of calc_update {self.total_angle_update_in_t[t]}')
 
-    def reach_zero_force(self, Snsr: "ForsentekClass", m: "MecaClass", max_iter: int = 20) -> None:
-        """Move the tip until the measured global force is small.
-        the procedure is :
-        1) move in x-y down the sensed forces
-        2) probe small angle motion, keep angle change that lowers forces
-        3) repeat
+    def reach_zero_force(self, Snsr: "ForsentekClass", m: "MecaClass") -> NDArray[np.float64]:
+        """Move the tip until measured global force is small, then return rest pose.
 
-        Parameters
-        ----------
-        max_iter  : int. Maximum number of correction attempts.
+        Returns
+        -------
+        NDArray[np.float64]
+            Final training-frame pose ``[x, y, theta_deg]``.
         """
-        print('initial position = ', m.current_pos)
+        m.set_frames("training")
+        m._get_current_pos()
+        print("initial position = ", m.current_pos)
+
+        F_norm_last = np.inf
+
+        if self.reach_steps:
+            max_iter = self.reach_steps
+        else:
+            max_iter = 20
+
         for _ in range(max_iter):
-            # -----------------------------
-            # Measure current force
-            # -----------------------------
             Snsr.measure()
             F = self.global_force(Snsr, m)  # [Fx, Fy] in mN
-            print('forces=', F)
+            print("forces=", F)
+
             F_norm = float(np.linalg.norm(F))
+            F_norm_last = F_norm
 
             if F_norm < self.F_tol:
-                print('F_norm < F_tol')
-                return
+                print("F_norm < F_tol")
+                m._get_current_pos()
+                return m.current_pos.copy()
 
-            # -----------------------------
-            # Current position
-            # -----------------------------
             current_pos = m.current_pos.copy()
 
-            # -----------------------------
-            # x-y correction 
-            # -----------------------------
-            # forces are reaction forces, correct through "+"" sign
-            delta_xy = + self.xy_step_size * F / (Snsr.norm_force * self.convert_F)
-            print('delta_xy=', delta_xy)
+            # forces are reaction forces, correct through + sign
+            delta_xy = self.xy_step_size * F / (Snsr.norm_force * self.convert_F)
+            print("delta_xy=", delta_xy)
 
             nxt_pos = current_pos.copy()
             nxt_pos[:2] += delta_xy
 
             completed = m.move_pos_w_mid(nxt_pos, self, Snsr)
             if not completed:
-                return
-            else:
-                print('moved to training frame position=', nxt_pos)
+                m._get_current_pos()
+                return m.current_pos.copy()
+
+            print("moved to training frame position=", nxt_pos)
 
             Snsr.measure()
             F = self.global_force(Snsr, m)
-            print('forces after xy=', F)
+            print("forces after xy=", F)
+
             F_norm_after_xy = float(np.linalg.norm(F))
+            F_norm_last = F_norm_after_xy
 
             if F_norm_after_xy < self.F_tol:
-                print('F_norm < F_tol after xy')
-                return
+                print("F_norm < F_tol after xy")
+                m._get_current_pos()
+                return m.current_pos.copy()
 
-            # -----------------------------
-            # theta correction by probing
-            # -----------------------------
             theta_dir = 0.0
 
             try:
-                m.set_frames('rotate_angle_directly')  # rotate angle without chain-tip x_TRF shift
+                m.set_frames("rotate_angle_directly")
+
                 m.robot.MoveLinRelTRF(0, 0, 0, 0, 0, +self.theta_step_size)
-                if not completed:
-                    return
-                else:
-                    print('moved to angle directly frame position for probe')
+                m.robot.WaitIdle()
 
                 Snsr.measure()
                 F_probe = self.global_force(Snsr, m)
                 F_probe_norm = float(np.linalg.norm(F_probe))
-                print('forces with theta probe=', F_probe)
+                print("forces with theta probe=", F_probe)
+
                 m.robot.MoveLinRelTRF(0, 0, 0, 0, 0, -self.theta_step_size)
+                m.robot.WaitIdle()
 
                 if F_probe_norm < F_norm_after_xy:
                     theta_dir = +1.0
@@ -607,28 +597,31 @@ class SupervisorClass:
                     theta_dir = -1.0
 
                 delta_theta = theta_dir * self.theta_step_size * F_norm_after_xy / (Snsr.norm_force * self.convert_F)
-                print('delta_theta=', delta_theta)
+                print("delta_theta=", delta_theta)
+
                 m.robot.MoveLinRelTRF(0, 0, 0, 0, 0, delta_theta)
-                if not completed:
-                    return
-                else:
-                    print('moved to angle directly frame position for update =', nxt_pos)
+                m.robot.WaitIdle()
 
             finally:
-                m.set_frames('training')  # always return to normal frame
+                m.set_frames("training")
                 m._get_current_pos()
-                print('current position after returning to training frame = ', m.current_pos)
+                print("current position after returning to training frame = ", m.current_pos)
 
             Snsr.measure()
             F = self.global_force(Snsr, m)
-            print('forces after theta=', F)
+            print("forces after theta=", F)
+
             F_norm_after_theta = float(np.linalg.norm(F))
+            F_norm_last = F_norm_after_theta
 
             if F_norm_after_theta < self.F_tol:
-                print('F_norm < F_tol after theta')
-                return
+                print("F_norm < F_tol after theta")
+                m._get_current_pos()
+                return m.current_pos.copy()
 
-        print(f"reach_zero_force stopped after max_iter with |F|={F_norm_after_theta:.3f} mN")
+        print(f"reach_zero_force stopped after max_iter with |F|={F_norm_last:.3f} mN")
+        m._get_current_pos()
+        return m.current_pos.copy()
 
     # ---------------------------------------------------------------
     # Helpers for Supervisor Class
@@ -670,6 +663,19 @@ class SupervisorClass:
         if not self.supress_prints:
             print(f"cut origin for the {self.origin_cut_restart_count} time")
 
+    def _loss_force(self, t: int, norm_force: float) -> NDArray[np.float64]:
+        loss = (self.desired_F_in_t[t, :] - self.F_in_t[t, :]) / self.convert_F
+        return loss / float(norm_force)
+
+    def _loss_tip_pos(self, t: int, pos: NDArray[np.float64], pos_des: NDArray[np.float64]) -> NDArray[np.float64]:
+        pos = np.asarray(pos, dtype=float)
+        pos_des = np.asarray(pos_des, dtype=float)
+
+        loss_xy = (pos_des[:2] - pos[:2]) / float(self.norm_pos)
+        loss_angle = (pos_des[2] - pos[2]) / float(self.norm_angle)
+
+        return np.array([loss_xy[0], loss_xy[1], loss_angle], dtype=float)
+
     def _get_delta_dispatch(self):
         """
         Map update_scheme -> function that computes (delta_tip_x, delta_tip_y, delta_angle).
@@ -680,7 +686,8 @@ class SupervisorClass:
         function that calculates tip update values inside self.calc_update
         """
         return {"one_to_one": self._delta_one_to_one,
-                "loss_diff": self._delta_loss_diff}
+                "loss_diff": self._delta_loss_diff,
+                "pos": self._delta_pos}
 
     def _delta_one_to_one(self, t):
         """
@@ -721,6 +728,30 @@ class SupervisorClass:
         delta_tip_y = - self.alpha * loss_diff * (+sgnx) * self.norm_pos  # Mar23
         delta_angle = - self.alpha * loss_add * self.norm_angle  # Mar23
         return delta_tip_x, delta_tip_y, delta_angle
+
+    def _delta_pos(self, t):
+        x_rel = self.pos_update_in_t[t-1, 0] - self.L/2
+        sgnx_update = np.sign(x_rel)
+        sgny_update = np.sign(self.pos_update_in_t[t-1, 1])
+        sgnx_meas = np.sign(self.rest_pos_in_t[-1][0])
+        sgny_meas = np.sign(self.rest_pos_in_t[-1][1])
+
+        if sgnx_update == 0.0 or t == 1:
+            sgnx_update = 1
+        if sgny_update == 0.0 or t == 1:
+            sgny_update = 1
+        if sgnx_meas == 0.0:
+            sgnx_meas = 1
+        if sgny_meas == 0.0:
+            sgny_meas = 1
+
+        delta_tip_x = - self.alpha * (-self.loss[0]) * (-sgny_update) * (-sgny_meas) * self.norm_pos  # Mar23
+        delta_tip_y = - self.alpha * (-self.loss[1]) * (+sgnx_update) * (+sgnx_meas) * self.norm_pos  # Mar23
+        # delta_tip_x = - self.alpha * (-self.loss[0]) * Variabs.norm_pos  # May3 for rotation matrix
+        # delta_tip_y = - self.alpha * (-self.loss[1]) * Variabs.norm_pos  # May3 for rotation matrix
+        delta_angle = - self.alpha * (-self.loss[2]) * self.norm_angle  # Mar23
+  
+        return float(delta_tip_x), float(delta_tip_y), float(delta_angle)
 
     # @staticmethod
     # def _parse_buckles_from_path(dataset_path: str) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
